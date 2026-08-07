@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Biographia",
-    "slug": "biographia-mobile",
+    "slug": "diamondsaar",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -11,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "pro.ssod.biographia",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -38,6 +39,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5aa4601c-4f9d-45d2-bead-323413e6951b"
+      }
+    },
+    "owner": "diamondsaars-team"
   }
 }
