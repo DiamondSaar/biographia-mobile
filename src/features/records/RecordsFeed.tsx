@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
 import { RecordCard } from '@/src/components/RecordCard';
 import { useTheme } from '@/src/theme/useTheme';
@@ -26,6 +27,7 @@ type RecordsFeedProps = {
 export function RecordsFeed({ loadRecords, emptyMessage }: RecordsFeedProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const router = useRouter();
 
   const [records, setRecords] = useState<BiographyRecord[] | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -70,7 +72,11 @@ export function RecordsFeed({ loadRecords, emptyMessage }: RecordsFeedProps) {
       <FlatList
         data={records ?? []}
         keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => <RecordCard record={item} />}
+        renderItem={({ item }) => (
+          <Pressable onPress={() => router.push({ pathname: '/record/[id]', params: { id: String(item.id) } })}>
+            <RecordCard record={item} />
+          </Pressable>
+        )}
         contentContainerStyle={styles.listContent}
         refreshing={isRefreshing}
         onRefresh={handleRefresh}

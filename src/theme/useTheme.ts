@@ -1,4 +1,4 @@
-import { useColorScheme } from '@/components/useColorScheme';
+import { useThemeMode } from '@/src/context/ThemeModeContext';
 
 import { accessLevelColors, palette } from './colors';
 import { radius, spacing } from './spacing';
@@ -10,18 +10,20 @@ import { radius, spacing } from './spacing';
  *   ...
  *   <View style={{ backgroundColor: theme.colors.background }} />
  *
- * Сам решает, светлая сейчас тема или тёмная (через настройки телефона,
- * useColorScheme() ниже), и отдаёт готовый набор цветов + отступов под неё.
- * Компонентам не нужно самим разбираться, какая тема активна - это ровно
- * та же идея, что useState/useContext: спрятать механику за простым вызовом.
+ * Раньше решал "светлая или тёмная" сам, глядя только на настройки
+ * телефона; теперь это временно передоверено ThemeModeContext.tsx -
+ * человек может выбрать конкретную тему вручную (экран настроек, из
+ * личного кабинета), а не только следовать за системой. useTheme() сам
+ * код экранов не меняет вообще - как и раньше, просто вызывается и
+ * отдаёт готовый набор цветов.
  */
 export function useTheme() {
-  const scheme = useColorScheme(); // 'light' | 'dark'
+  const { resolvedScheme } = useThemeMode();
 
   return {
-    scheme,
-    colors: palette[scheme],
-    accessLevelColors: accessLevelColors[scheme],
+    scheme: resolvedScheme,
+    colors: palette[resolvedScheme],
+    accessLevelColors: accessLevelColors[resolvedScheme],
     spacing,
     radius,
   };

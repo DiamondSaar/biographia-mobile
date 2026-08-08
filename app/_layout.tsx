@@ -4,8 +4,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
-import { useColorScheme } from '@/components/useColorScheme';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
+import { ThemeModeProvider, useThemeMode } from '@/src/context/ThemeModeContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -36,18 +36,21 @@ export default function RootLayout() {
     return null;
   }
 
-  // AuthProvider оборачивает вообще всё дерево экранов - это единственное
-  // место, где он нужен, дальше любой экран может позвать useAuth() и
-  // узнать, кто залогинен (см. src/context/AuthContext.tsx).
+  // ThemeModeProvider снаружи AuthProvider - тема и вход независимы друг
+  // от друга (тема должна работать даже на экране логина, до входа).
+  // Оба оборачивают вообще всё дерево экранов - единственное место, где
+  // они нужны, дальше любой экран может позвать useTheme()/useAuth().
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    <ThemeModeProvider>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </ThemeModeProvider>
   );
 }
 
 function RootNavigator() {
-  const colorScheme = useColorScheme();
+  const { resolvedScheme } = useThemeMode();
   const { viewer, isLoading } = useAuth();
 
   useEffect(() => {
@@ -63,7 +66,7 @@ function RootNavigator() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={resolvedScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         {/*
           Stack.Protected - официальный механизм Expo Router (с SDK 53) для
@@ -76,6 +79,8 @@ function RootNavigator() {
         */}
         <Stack.Protected guard={!!viewer}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="record/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="settings" options={{ title: 'Настройки', headerBackTitle: 'Назад' }} />
         </Stack.Protected>
 
         <Stack.Protected guard={!viewer}>

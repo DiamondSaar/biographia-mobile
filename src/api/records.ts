@@ -34,3 +34,22 @@ export function fetchRecordDetail(id: number): Promise<BiographyRecord> {
 export function createRecord(payload: CreateRecordPayload): Promise<BiographyRecord> {
   return request('/records', { method: 'POST', body: payload });
 }
+
+export type EditRecordPayload = {
+  title?: string | null;
+  body?: string | null;
+  access_level?: string | null;
+};
+
+// Правка записи - см. POST /records/<id>/edit. Бэкенд сам решает, применить
+// правку сразу или отправить на согласование (см. app/records/routes.py::
+// record_edit и can_edit_record там же) - владелец записи или суперадмин
+// правят напрямую (получают обновлённую запись, 200), кто угодно ещё, кто
+// просто видит запись - создаёт предложение (получают "pending": true, 202).
+// Экран сам решает, что показать пользователю по этому признаку.
+export function editRecord(
+  id: number,
+  payload: EditRecordPayload,
+): Promise<BiographyRecord | { ok: true; pending: true; message: string }> {
+  return request(`/records/${id}/edit`, { method: 'POST', body: payload });
+}

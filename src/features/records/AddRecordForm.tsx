@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import * as recordsApi from '@/src/api/records';
-import type { Zone } from '@/src/api/types';
+import type { RecordType, Zone } from '@/src/api/types';
 import { useTheme } from '@/src/theme/useTheme';
-import { ZONE_OPTIONS } from './labels';
+import { RECORD_TYPE_OPTIONS, ZONE_OPTIONS } from './labels';
 
 /**
  * Форма создания записи - упрощённая первая версия (осознанно, см.
@@ -23,6 +23,7 @@ export function AddRecordForm({ onCreated, onCancel }: { onCreated: () => void; 
   const styles = createStyles(theme);
 
   const [zone, setZone] = useState<Zone>('open');
+  const [recordType, setRecordType] = useState<RecordType>('note');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export function AddRecordForm({ onCreated, onCancel }: { onCreated: () => void; 
     try {
       await recordsApi.createRecord({
         zone,
-        record_type: 'note',
+        record_type: recordType,
         title: title.trim() || null,
         body: body.trim() || null,
         // 'G' - самый открытый ранг. Веб-версия даёт выбрать ранг при
@@ -73,6 +74,20 @@ export function AddRecordForm({ onCreated, onCancel }: { onCreated: () => void; 
             onPress={() => setZone(value)}
             style={[styles.zoneOption, zone === value && styles.zoneOptionActive]}>
             <Text style={[styles.zoneOptionText, zone === value && styles.zoneOptionTextActive]}>{labelText}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.label}>Категория</Text>
+      <View style={styles.zoneRow}>
+        {RECORD_TYPE_OPTIONS.map(([value, labelText]) => (
+          <Pressable
+            key={value}
+            onPress={() => setRecordType(value)}
+            style={[styles.zoneOption, recordType === value && styles.zoneOptionActive]}>
+            <Text style={[styles.zoneOptionText, recordType === value && styles.zoneOptionTextActive]}>
+              {labelText}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -133,6 +148,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     zoneRow: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       gap: theme.spacing.sm,
     },
     zoneOption: {

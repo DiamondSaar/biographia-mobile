@@ -1,3 +1,5 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as recordsApi from '@/src/api/records';
@@ -16,6 +18,7 @@ export function ProfileScreen() {
   const theme = useTheme();
   const styles = createStyles(theme);
   const { viewer, logout } = useAuth();
+  const router = useRouter();
 
   return (
     <View style={styles.container}>
@@ -27,6 +30,9 @@ export function ProfileScreen() {
           <Text style={styles.name}>{viewer?.display_name || viewer?.username}</Text>
           <Text style={styles.org}>{viewer?.organization?.name ?? viewer?.username}</Text>
         </View>
+        <Pressable style={styles.iconButton} onPress={() => router.push('/settings')}>
+          <Ionicons name="settings-outline" size={22} color={theme.colors.textMuted} />
+        </Pressable>
         <Pressable style={styles.logoutButton} onPress={logout}>
           <Text style={styles.logoutButtonText}>Выйти</Text>
         </Pressable>
@@ -76,6 +82,9 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     org: {
       fontSize: 13,
       color: theme.colors.textMuted,
+    },
+    iconButton: {
+      padding: theme.spacing.sm,
     },
     logoutButton: {
       paddingHorizontal: theme.spacing.md,
