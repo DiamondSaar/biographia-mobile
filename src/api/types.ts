@@ -90,8 +90,15 @@ export type BiographyRecord = {
 export type CreateRecordPayload = {
   zone: Zone;
   record_type: RecordType;
+  // Открытая/org зона: title/body как есть. Личная зона: сервер их не
+  // видит вообще - вместо них encrypted_content/nonce (один AEAD-блок
+  // над {title, body}, см. encryptText в src/crypto/masterKey.ts) -
+  // бэкенд явно требует ровно один из этих двух наборов полей за раз
+  // (app/records/routes.py::create_record), никогда оба сразу.
   title?: string | null;
   body?: string | null;
+  encrypted_content?: string;
+  nonce?: string;
   access_level?: string | null;
   entity_kind?: 'entity' | 'organization' | null;
   entity_id?: number | null;

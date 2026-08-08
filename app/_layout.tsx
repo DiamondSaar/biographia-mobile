@@ -1,3 +1,11 @@
+// ДОЛЖЕН быть первым импортом файла: подставляет global.crypto.getRandomValues,
+// которого в React Native нет из коробки (в отличие от браузера) - на нём
+// держится randomBytes() из @noble/hashes, которым пользуется вся личная
+// (зашифрованная) зона (см. src/crypto/masterKey.ts). Если что-то успеет
+// вызвать randomBytes() раньше, чем выполнится эта строка - будет либо
+// ошибка, либо, что хуже, небезопасный источник случайности.
+import 'react-native-get-random-values';
+
 import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -5,6 +13,7 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
+import { PersonalKeyProvider } from '@/src/context/PersonalKeyContext';
 import { ThemeModeProvider, useThemeMode } from '@/src/context/ThemeModeContext';
 
 export {
@@ -38,12 +47,17 @@ export default function RootLayout() {
 
   // ThemeModeProvider снаружи AuthProvider - тема и вход независимы друг
   // от друга (тема должна работать даже на экране логина, до входа).
-  // Оба оборачивают вообще всё дерево экранов - единственное место, где
-  // они нужны, дальше любой экран может позвать useTheme()/useAuth().
+  // PersonalKeyProvider - внутри AuthProvider: его собственные запросы
+  // (см. PersonalKeyContext.tsx) идут через Bearer-токен, без входа в
+  // аккаунт им нечего делать. Все три оборачивают вообще всё дерево
+  // экранов - единственное место, где они нужны, дальше любой экран
+  // может позвать useTheme()/useAuth()/usePersonalKey().
   return (
     <ThemeModeProvider>
       <AuthProvider>
-        <RootNavigator />
+        <PersonalKeyProvider>
+          <RootNavigator />
+        </PersonalKeyProvider>
       </AuthProvider>
     </ThemeModeProvider>
   );

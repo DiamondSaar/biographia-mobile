@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import * as recordsApi from '@/src/api/records';
 import { ApiError } from '@/src/api/client';
+import { encryptText } from '@/src/crypto/masterKey';
 import type { AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
 import { useAuth } from '@/src/context/AuthContext';
+import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import type { BiographyRecord } from '@/src/api/types';
+import { usePersonalContent } from '@/src/features/diary/usePersonalContent';
 import { RECORD_TYPE_LABELS, ZONE_LABELS } from './labels';
 import { formatDateTime } from '@/src/utils/dates';
+import { formatFileSize } from '@/src/utils/files';
 
 /**
  * Просмотр записи + правка на месте. Кто может редактировать сразу, а
@@ -19,12 +23,16 @@ import { formatDateTime } from '@/src/utils/dates';
  * Правило то же самое, что и на веб-версии (frontend/src/components/
  * RecordCard.jsx's EditRecordForm): владелец/суперадмин правят сразу,
  * остальные - через предложение.
+ *
+ * Личная зона: содержимое расшифровывается на устройстве (usePersonalContent
+ * ниже), а не берётся из record.title/record.body напрямую - на сервере
+ * их для personal-записей просто нет в открытом виде.
  */
 export function RecordDetailScreen({ id }: { id: number }) {
   const theme = useTheme();
   const styles = createStyles(theme);
-  const router = useRouter();
   const { viewer } = useAuth();
+  const { subkey } = usePersonalKey();
 
   const [record, setRecord] = useState<BiographyRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,12 +42,16 @@ export function RecordDetailScreen({ id }: { id: number }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  const { content: personalContent, failed: decryptFailed, locked } = usePersonalContent(record);
+
   const load = useCallback(async () => {
     try {
       const data = await recordsApi.fetchRecordDetail(id);
       setRecord(data);
-      setTitle(data.title || '');
-      setBody(data.body || '');
+      if (data.zone !== 'personal') {
+        setTitle(data.title || '');
+        setBody(data.body || '');
+      }
       setError(null);
     } catch {
       setError('Не удалось загрузить запись.');
@@ -49,6 +61,16 @@ export function RecordDetailScreen({ id }: { id: number }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Для личной зоны заголовок/текст формы редактирования подставляются
+  // из уже расшифрованного content, как только он готов (расшифровка в
+  // usePersonalContent идёт асинхронно, отдельным эффектом от load() выше).
+  useEffect(() => {
+    if (record?.zone === 'personal' && personalContent) {
+      setTitle(personalContent.title || '');
+      setBody(personalContent.body || '');
+    }
+  }, [record?.zone, personalContent]);
 
   // Та же проверка, что can_edit_record на бэкенде - здесь только для
   // того, чтобы решить, ЧТО показать (кнопка "Сохранить" против
@@ -61,10 +83,18 @@ export function RecordDetailScreen({ id }: { id: number }) {
     setIsSaving(true);
     setSaveMessage(null);
     try {
-      const result = await recordsApi.editRecord(record.id, {
-        title: title.trim() || null,
-        body: body.trim() || null,
-      });
+      const payload =
+        record.zone === 'personal'
+          ? (() => {
+              const { ciphertext, nonce } = encryptText(
+                subkey!,
+                JSON.stringify({ title: title.trim() || null, body: body.trim() || null }),
+              );
+              return { encrypted_content: ciphertext, nonce };
+            })()
+          : { title: title.trim() || null, body: body.trim() || null };
+
+      const result = await recordsApi.editRecord(record.id, payload);
       if ('pending' in result) {
         setSaveMessage(result.message);
         setIsEditing(false);
@@ -96,6 +126,12 @@ export function RecordDetailScreen({ id }: { id: number }) {
   }
 
   const accessLevel = record.access_level as AccessLevel | null;
+  const displayTitle = record.zone === 'personal' ? personalContent?.title : record.title;
+  const displayBody = record.zone === 'personal' ? personalContent?.body : record.body;
+  // Личную запись нельзя ни прочитать, ни предложить правку, пока
+  // дневник заблокирован - редактирование "вслепую" не имеет смысла и
+  // могло бы затереть содержимое, которое сам предлагающий не видит.
+  const canShowEditButton = record.zone !== 'personal' || !locked;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -125,7 +161,14 @@ export function RecordDetailScreen({ id }: { id: number }) {
         )}
       </View>
 
-      {isEditing ? (
+      {locked ? (
+        <View style={styles.lockedBox}>
+          <Ionicons name="lock-closed-outline" size={20} color={theme.colors.textMuted} />
+          <Text style={styles.lockedText}>Разблокируйте личный дневник, чтобы увидеть эту запись.</Text>
+        </View>
+      ) : decryptFailed ? (
+        <Text style={styles.errorText}>Не удалось расшифровать запись.</Text>
+      ) : isEditing ? (
         <>
           <Text style={styles.label}>Заголовок</Text>
           <TextInput style={styles.input} value={title} onChangeText={setTitle} />
@@ -153,8 +196,28 @@ export function RecordDetailScreen({ id }: { id: number }) {
         </>
       ) : (
         <>
-          <Text style={styles.title}>{record.title || '(без заголовка)'}</Text>
-          {!!record.body && <Text style={styles.body}>{record.body}</Text>}
+          <Text style={styles.title}>{displayTitle || '(без заголовка)'}</Text>
+          {!!displayBody && <Text style={styles.body}>{displayBody}</Text>}
+
+          {record.attachments.length > 0 && (
+            <View style={styles.attachmentsBox}>
+              <Text style={styles.label}>Вложения</Text>
+              {record.attachments.map((attachment) => (
+                <View key={attachment.id} style={styles.attachmentRow}>
+                  <Ionicons name="document-attach-outline" size={16} color={theme.colors.textMuted} />
+                  <Text style={styles.attachmentName} numberOfLines={1}>
+                    {attachment.filename}
+                  </Text>
+                  <Text style={styles.attachmentSize}>{formatFileSize(attachment.size_bytes)}</Text>
+                </View>
+              ))}
+              {/* Скачивание/открытие файла - отдельный шаг (нужны
+                  expo-file-system + expo-sharing, т.к. GET /attachments/<id>
+                  тоже требует Authorization: Bearer, просто открыть URL в
+                  браузере телефона не получится - заголовок так не
+                  подставить). Здесь пока только видно, что вложения есть. */}
+            </View>
+          )}
 
           <View style={styles.footer}>
             <Text style={styles.author}>
@@ -166,9 +229,11 @@ export function RecordDetailScreen({ id }: { id: number }) {
             <Text style={styles.author}>{formatDateTime(record.created_at)}</Text>
           </View>
 
-          <Pressable style={styles.editButton} onPress={() => setIsEditing(true)}>
-            <Text style={styles.editButtonText}>{canEditDirectly ? 'Редактировать' : 'Предложить правку'}</Text>
-          </Pressable>
+          {canShowEditButton && (
+            <Pressable style={styles.editButton} onPress={() => setIsEditing(true)}>
+              <Text style={styles.editButtonText}>{canEditDirectly ? 'Редактировать' : 'Предложить правку'}</Text>
+            </Pressable>
+          )}
         </>
       )}
     </ScrollView>
@@ -308,6 +373,39 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     infoText: {
       color: theme.colors.warn,
       fontSize: 13,
+    },
+    lockedBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.sm,
+      backgroundColor: theme.colors.backgroundCard,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.md,
+      padding: theme.spacing.md,
+    },
+    lockedText: {
+      color: theme.colors.textMuted,
+      fontSize: 13,
+      flex: 1,
+    },
+    attachmentsBox: {
+      marginTop: theme.spacing.lg,
+    },
+    attachmentRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.sm,
+      paddingVertical: theme.spacing.xs,
+    },
+    attachmentName: {
+      flex: 1,
+      fontSize: 13,
+      color: theme.colors.text,
+    },
+    attachmentSize: {
+      fontSize: 12,
+      color: theme.colors.textMuted,
     },
     errorText: {
       color: theme.colors.danger,

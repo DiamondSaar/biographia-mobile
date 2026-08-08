@@ -1,8 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
 import type { BiographyRecord } from '@/src/api/types';
+import { usePersonalContent } from '@/src/features/diary/usePersonalContent';
 import { RECORD_TYPE_LABELS, ZONE_LABELS } from '@/src/features/records/labels';
 import { formatDateTime } from '@/src/utils/dates';
 
@@ -23,15 +25,22 @@ import { formatDateTime } from '@/src/utils/dates';
 export function RecordCard({ record }: { record: BiographyRecord }) {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const { content, failed, locked } = usePersonalContent(record);
 
   const accessLevel = record.access_level as AccessLevel | null;
   const borderColor = accessLevel ? theme.accessLevelColors[accessLevel].border : theme.colors.border;
+
+  // Для личной зоны заголовок/текст берутся из расшифрованного content
+  // (usePersonalContent выше), а не напрямую из record - на сервере их
+  // просто нет в открытом виде (см. record.encrypted_content вместо них).
+  const title = record.zone === 'personal' ? content?.title : record.title;
+  const body = record.zone === 'personal' ? content?.body : record.body;
 
   return (
     <View style={[styles.card, { borderLeftColor: borderColor }]}>
       <View style={styles.header}>
         <Text style={styles.title} numberOfLines={2}>
-          {record.title || '(без заголовка)'}
+          {locked ? '🔒 Личная запись' : title || '(без заголовка)'}
         </Text>
         {accessLevel && (
           <View
@@ -49,9 +58,16 @@ export function RecordCard({ record }: { record: BiographyRecord }) {
         )}
       </View>
 
-      {!!record.body && (
+      {locked && (
+        <View style={styles.metaRow}>
+          <Ionicons name="lock-closed-outline" size={13} color={theme.colors.textMuted} />
+          <Text style={[styles.metaText, { marginLeft: theme.spacing.xs }]}>Разблокируйте дневник, чтобы увидеть содержимое</Text>
+        </View>
+      )}
+      {!locked && failed && <Text style={styles.errorInline}>Не удалось расшифровать запись.</Text>}
+      {!locked && !failed && !!body && (
         <Text style={styles.body} numberOfLines={4}>
-          {record.body}
+          {body}
         </Text>
       )}
 
@@ -119,6 +135,11 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       fontSize: 12,
       color: theme.colors.textMuted,
       marginHorizontal: theme.spacing.xs,
+    },
+    errorInline: {
+      fontSize: 13,
+      color: theme.colors.danger,
+      marginTop: theme.spacing.xs,
     },
     author: {
       fontSize: 12,

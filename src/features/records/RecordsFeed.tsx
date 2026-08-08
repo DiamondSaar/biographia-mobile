@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 
 import { RecordCard } from '@/src/components/RecordCard';
 import { useTheme } from '@/src/theme/useTheme';
-import type { BiographyRecord } from '@/src/api/types';
+import type { BiographyRecord, Zone } from '@/src/api/types';
 import { AddRecordForm } from './AddRecordForm';
 
 type RecordsFeedProps = {
@@ -16,6 +16,9 @@ type RecordsFeedProps = {
   // источник данных.
   loadRecords: () => Promise<{ results: BiographyRecord[] }>;
   emptyMessage: string;
+  // Прокидывается дальше в AddRecordForm как есть - см. её собственный
+  // комментарий про fixedZone (используется вкладкой "Дневник").
+  fixedZone?: Zone;
 };
 
 /**
@@ -24,7 +27,7 @@ type RecordsFeedProps = {
  * и та же механика с разным источником данных, поэтому она вынесена в
  * общий компонент, а не продублирована дважды.
  */
-export function RecordsFeed({ loadRecords, emptyMessage }: RecordsFeedProps) {
+export function RecordsFeed({ loadRecords, emptyMessage, fixedZone }: RecordsFeedProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const router = useRouter();
@@ -80,7 +83,11 @@ export function RecordsFeed({ loadRecords, emptyMessage }: RecordsFeedProps) {
         contentContainerStyle={styles.listContent}
         refreshing={isRefreshing}
         onRefresh={handleRefresh}
-        ListHeaderComponent={showForm ? <AddRecordForm onCreated={handleCreated} onCancel={() => setShowForm(false)} /> : null}
+        ListHeaderComponent={
+          showForm ? (
+            <AddRecordForm onCreated={handleCreated} onCancel={() => setShowForm(false)} fixedZone={fixedZone} />
+          ) : null
+        }
         ListEmptyComponent={
           error ? (
             <Text style={styles.errorText}>{error}</Text>

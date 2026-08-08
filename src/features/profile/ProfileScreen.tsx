@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import * as recordsApi from '@/src/api/records';
 import { useAuth } from '@/src/context/AuthContext';
+import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import { RecordsFeed } from '@/src/features/records/RecordsFeed';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -18,7 +19,19 @@ export function ProfileScreen() {
   const theme = useTheme();
   const styles = createStyles(theme);
   const { viewer, logout } = useAuth();
+  const { clearBiometricKey } = usePersonalKey();
   const router = useRouter();
+
+  // Биометрический ключ дневника (см. PersonalKeyContext.tsx) привязан к
+  // конкретному username - при выходе его стоит стереть, чтобы на этом
+  // же телефоне не остался работающий отпечаток/Face ID от чужого уже
+  // вышедшего аккаунта. Сам ключ входа (SecureStore, tokenStorage.ts)
+  // чистит useAuth().logout() сам по себе, это отдельная, но похожая
+  // по духу очистка.
+  const handleLogout = async () => {
+    await clearBiometricKey();
+    await logout();
+  };
 
   return (
     <View style={styles.container}>
@@ -33,7 +46,7 @@ export function ProfileScreen() {
         <Pressable style={styles.iconButton} onPress={() => router.push('/settings')}>
           <Ionicons name="settings-outline" size={22} color={theme.colors.textMuted} />
         </Pressable>
-        <Pressable style={styles.logoutButton} onPress={logout}>
+        <Pressable style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutButtonText}>Выйти</Text>
         </Pressable>
       </View>

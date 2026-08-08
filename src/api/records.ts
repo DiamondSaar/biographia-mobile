@@ -23,6 +23,15 @@ export function fetchMyRecords(): Promise<RecordsListResponse> {
   return request('/records/mine');
 }
 
+// Личный дневник - нет отдельного маршрута "только личное", веб-версия
+// (frontend/src/pages/DiaryPage.jsx's PersonalFeed) тоже просто фильтрует
+// /records/mine по zone на клиенте, а не заводит новый бэкенд-маршрут
+// ради этого - делаем так же.
+export async function fetchMyPersonalRecords(): Promise<RecordsListResponse> {
+  const data = await fetchMyRecords();
+  return { results: data.results.filter((r) => r.zone === 'personal') };
+}
+
 // Одна конкретная запись целиком (с версиями) - см. GET /records/<id>.
 export function fetchRecordDetail(id: number): Promise<BiographyRecord> {
   return request(`/records/${id}`);
@@ -38,6 +47,8 @@ export function createRecord(payload: CreateRecordPayload): Promise<BiographyRec
 export type EditRecordPayload = {
   title?: string | null;
   body?: string | null;
+  encrypted_content?: string;
+  nonce?: string;
   access_level?: string | null;
 };
 

@@ -1,34 +1,95 @@
-import { StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import * as recordsApi from '@/src/api/records';
+import { usePersonalKey } from '@/src/context/PersonalKeyContext';
+import { RecordsFeed } from '@/src/features/records/RecordsFeed';
 import { useTheme } from '@/src/theme/useTheme';
+import { SetupScreen } from './SetupScreen';
+import { UnlockScreen } from './UnlockScreen';
 
 /**
- * Личный дневник - заглушка в этой первой версии, ЧЕСТНО, а не притворяясь
- * рабочей функцией. Причина не техническая лень, а реальная зависимость:
- * личные записи на бэкенде хранятся зашифрованными на стороне клиента
- * (zone=personal, поле encrypted_content) - устройство само шифрует текст
- * перед отправкой, сервер вообще не видит содержимое. Эта крипто-часть
- * (веб-версия: frontend/src/crypto/masterKey.ts) на мобильном ещё не
- * перенесена - см. корневой README.md, раздел "Осознанно отложено".
- *
- * Когда до этого дойдёт очередь: понадобится порт masterKey.ts на RN
- * (сами крипто-библиотеки - @noble/*, @scure/bip39 - чистый JS/TS без
- * платформенных завязок, должны заработать и в React Native почти без
- * изменений) плюс экран разблокировки (пароль/сид-фраза).
+ * Личный дневник - зеркалит DiaryPage.jsx веб-версии: экран сам решает,
+ * что показать, по статусу из PersonalKeyContext (loading/not_configured/
+ * locked/unlocked/error) - ни один вызывающий код (таб-навигация,
+ * app/(tabs)/diary.tsx) не должен знать об этой логике.
  */
 export function DiaryScreen() {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const { status, unlock, refreshStatus, canUseBiometrics, enableBiometricUnlock } = usePersonalKey();
 
+  // После разблокировки паролем (не биометрией - она уже включена, раз
+  // сработала) - один раз предлагаем "запомнить через биометрию", чтобы
+  // в следующий раз не набирать длинный пароль заново. Ставится в true
+  // из UnlockScreen/SetupScreen, самим этим экраном же и гасится после
+  // ответа пользователя (да/нет).
+  const [offerBiometric, setOfferBiometric] = useState(false);
+
+  const handleEnableBiometric = async () => {
+    await enableBiometricUnlock();
+    setOfferBiometric(false);
+  };
+
+  if (status === 'loading') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={theme.colors.accent} />
+      </View>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>Не удалось проверить состояние шифрования.</Text>
+      </View>
+    );
+  }
+
+  if (status === 'not_configured') {
+    return (
+      <View style={styles.container}>
+        <SetupScreen
+          onDone={(masterKey) => {
+            unlock(masterKey);
+            refreshStatus();
+            setOfferBiometric(canUseBiometrics);
+          }}
+        />
+      </View>
+    );
+  }
+
+  if (status === 'locked') {
+    return (
+      <View style={styles.container}>
+        <UnlockScreen onUnlocked={setOfferBiometric} />
+      </View>
+    );
+  }
+
+  // status === 'unlocked'
   return (
     <View style={styles.container}>
-      <Ionicons name="lock-closed-outline" size={48} color={theme.colors.textMuted} />
-      <Text style={styles.title}>Личный дневник ещё не готов</Text>
-      <Text style={styles.text}>
-        Личные записи шифруются на устройстве перед отправкой на сервер. Этот механизм пока перенесён
-        только в веб-версию. Загляните на biographia.ssod.pro, чтобы вести личный дневник уже сейчас.
-      </Text>
+      {offerBiometric && (
+        <View style={styles.biometricPrompt}>
+          <Text style={styles.biometricPromptText}>Запомнить через биометрию, чтобы не вводить пароль каждый раз?</Text>
+          <View style={styles.biometricPromptActions}>
+            <Pressable onPress={() => setOfferBiometric(false)}>
+              <Text style={styles.biometricPromptSkip}>Не сейчас</Text>
+            </Pressable>
+            <Pressable style={styles.biometricPromptButton} onPress={handleEnableBiometric}>
+              <Text style={styles.biometricPromptButtonText}>Включить</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+      <RecordsFeed
+        loadRecords={recordsApi.fetchMyPersonalRecords}
+        emptyMessage="Пока нет ни одной личной записи."
+        fixedZone="personal"
+      />
     </View>
   );
 }
@@ -37,23 +98,50 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
   return StyleSheet.create({
     container: {
       flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    center: {
+      flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      padding: theme.spacing.xl,
       backgroundColor: theme.colors.background,
-      gap: theme.spacing.md,
     },
-    title: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: theme.colors.text,
-      textAlign: 'center',
-    },
-    text: {
+    errorText: {
+      color: theme.colors.danger,
       fontSize: 14,
+    },
+    biometricPrompt: {
+      backgroundColor: theme.colors.accentLight,
+      margin: theme.spacing.md,
+      marginBottom: 0,
+      borderRadius: theme.radius.md,
+      padding: theme.spacing.md,
+    },
+    biometricPromptText: {
+      color: theme.colors.text,
+      fontSize: 13,
+      marginBottom: theme.spacing.sm,
+    },
+    biometricPromptActions: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: theme.spacing.md,
+      alignItems: 'center',
+    },
+    biometricPromptSkip: {
       color: theme.colors.textMuted,
-      textAlign: 'center',
-      lineHeight: 20,
+      fontSize: 13,
+    },
+    biometricPromptButton: {
+      backgroundColor: theme.colors.accent,
+      borderRadius: theme.radius.sm,
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: theme.spacing.xs,
+    },
+    biometricPromptButtonText: {
+      color: '#fff',
+      fontSize: 13,
+      fontWeight: '600',
     },
   });
 }

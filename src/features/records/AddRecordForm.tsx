@@ -1,55 +1,155 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 
+import { uploadAttachment, type PickedFile } from '@/src/api/attachments';
 import * as recordsApi from '@/src/api/records';
 import type { RecordType, Zone } from '@/src/api/types';
+import { encryptText } from '@/src/crypto/masterKey';
+import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import { useTheme } from '@/src/theme/useTheme';
 import { RECORD_TYPE_OPTIONS, ZONE_OPTIONS } from './labels';
 
+type AddRecordFormProps = {
+  onCreated: () => void;
+  onCancel: () => void;
+  // Задаётся при открытии формы из конкретного места (сейчас - дневника,
+  // src/features/diary/DiaryScreen.tsx) - тогда выбор зоны вообще не
+  // показывается, зона всегда та, что передана. Та же идея, что
+  // fixedZone в веб-версии (frontend/src/components/AddRecordForm.jsx).
+  fixedZone?: Zone;
+};
+
 /**
- * Форма создания записи - упрощённая первая версия (осознанно, см.
- * корневой README.md "Осознанно отложено"): без привязки к сущности
- * Dominex и без вложений. Веб-версия (frontend/src/components/
- * AddRecordForm.jsx) умеет больше - когда до этого дойдёт очередь,
- * добавляются новые поля сюда же, а не переписывается всё заново.
- *
- * zone может быть только 'open' или 'org' - 'personal' (личный дневник)
- * специально не предлагается: та зона на бэкенде требует зашифрованного
- * содержимого (encrypted_content), а крипто-часть на мобильном ещё не
- * перенесена (см. src/features/diary/DiaryScreen.tsx).
+ * Форма создания записи - упрощённая версия (осознанно, см. корневой
+ * README.md "Осознанно отложено"): без привязки к сущности Dominex.
+ * Личная зона теперь поддержана - шифрование на устройстве через
+ * usePersonalKey().subkey, см. handleSubmit ниже.
  */
-export function AddRecordForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
+export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const { status: diaryStatus, subkey } = usePersonalKey();
 
-  const [zone, setZone] = useState<Zone>('open');
+  const [zone, setZone] = useState<Zone>(fixedZone ?? 'open');
   const [recordType, setRecordType] = useState<RecordType>('note');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [files, setFiles] = useState<PickedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const nonPersonalZones = ZONE_OPTIONS.filter(([value]) => value !== 'personal');
+  const isPersonalLocked = zone === 'personal' && diaryStatus !== 'unlocked';
+
+  // Вложения не показываются для личной зоны вообще - бэкенд отвечает
+  // 501 на попытку загрузить файл в zone=personal (шифрование по файлу
+  // ещё не перенесено, см. корневой README.md "Осознанно отложено") -
+  // не показываем контрол, который заведомо не сработает.
+  const pickFiles = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ multiple: true });
+    if (result.canceled || !result.assets) return;
+    setFiles((prev) => [
+      ...prev,
+      ...result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType || 'application/octet-stream',
+      })),
+    ]);
+  };
+
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setError('Нет разрешения на использование камеры.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets) return;
+    setFiles((prev) => [
+      ...prev,
+      ...result.assets.map((asset, index) => ({
+        uri: asset.uri,
+        // Камера не всегда отдаёт имя файла (особенно на Android) -
+        // придумываем своё, чтобы не отправлять на сервер пустую строку.
+        name: asset.fileName || `photo-${Date.now()}-${index}.jpg`,
+        type: asset.mimeType || 'image/jpeg',
+      })),
+    ]);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async () => {
     if (!title.trim() && !body.trim()) {
       setError('Нужен заголовок или текст.');
       return;
     }
+    if (isPersonalLocked) {
+      setError('Сначала разблокируйте личный дневник.');
+      return;
+    }
     setError(null);
     setIsSubmitting(true);
     try {
-      await recordsApi.createRecord({
-        zone,
-        record_type: recordType,
-        title: title.trim() || null,
-        body: body.trim() || null,
-        // 'G' - самый открытый ранг. Веб-версия даёт выбрать ранг при
-        // создании; здесь для простоты первой версии он фиксирован -
-        // при необходимости запись всегда можно поднять в ранге через
-        // веб-интерфейс (владелец/суперадмин).
-        access_level: 'G',
-      });
+      if (zone === 'personal') {
+        // Открытый текст {title, body} никогда не покидает устройство -
+        // шифруется в один AEAD-блок (см. encryptText в
+        // src/crypto/masterKey.ts) тем же способом, что и на веб-версии;
+        // сервер получает только шифртекст, decode которого без ключа
+        // невозможен. subkey гарантированно не null здесь - проверка
+        // isPersonalLocked выше уже отсекла случай "дневник заблокирован".
+        const { ciphertext, nonce } = encryptText(
+          subkey!,
+          JSON.stringify({ title: title.trim() || null, body: body.trim() || null }),
+        );
+        await recordsApi.createRecord({
+          zone,
+          record_type: recordType,
+          encrypted_content: ciphertext,
+          nonce,
+        });
+      } else {
+        const record = await recordsApi.createRecord({
+          zone,
+          record_type: recordType,
+          title: title.trim() || null,
+          body: body.trim() || null,
+          // 'G' - самый открытый ранг. Веб-версия даёт выбрать ранг при
+          // создании; здесь для простоты фиксирован - при необходимости
+          // запись всегда можно поднять в ранге через веб-интерфейс
+          // (владелец/суперадмин).
+          access_level: 'G',
+        });
+        // Запись уже сохранена на сервере - закрываем форму независимо
+        // от того, что будет с загрузкой файлов ниже. Раньше в веб-версии
+        // была ошибка ровно наоборот (форма ждала успеха и записи, и
+        // вложения одновременно) - при обрыве загрузки файла человек не
+        // видел, что запись уже создана, и по повторному нажатию
+        // получал дубли. Здесь тот же урок учтён сразу.
+        onCreated();
+        if (files.length > 0) {
+          const failed: string[] = [];
+          for (const file of files) {
+            try {
+              await uploadAttachment(record.id, file);
+            } catch {
+              failed.push(file.name);
+            }
+          }
+          if (failed.length > 0) {
+            // setError() здесь не поможет - форма уже закрылась строчкой
+            // выше (onCreated() обычно прячет её в родителе), обычный
+            // Alert - единственный способ вообще показать эту ошибку.
+            Alert.alert('Не всё прикрепилось', `Запись сохранена, но не удалось прикрепить: ${failed.join(', ')}`);
+          }
+        }
+        return;
+      }
       onCreated();
     } catch {
       setError('Не удалось сохранить запись. Проверьте соединение.');
@@ -65,18 +165,27 @@ export function AddRecordForm({ onCreated, onCancel }: { onCreated: () => void; 
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
+      {isPersonalLocked && (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>Сначала разблокируйте личный дневник.</Text>
+        </View>
+      )}
 
-      <Text style={styles.label}>Зона</Text>
-      <View style={styles.zoneRow}>
-        {nonPersonalZones.map(([value, labelText]) => (
-          <Pressable
-            key={value}
-            onPress={() => setZone(value)}
-            style={[styles.zoneOption, zone === value && styles.zoneOptionActive]}>
-            <Text style={[styles.zoneOptionText, zone === value && styles.zoneOptionTextActive]}>{labelText}</Text>
-          </Pressable>
-        ))}
-      </View>
+      {!fixedZone && (
+        <>
+          <Text style={styles.label}>Зона</Text>
+          <View style={styles.zoneRow}>
+            {ZONE_OPTIONS.map(([value, labelText]) => (
+              <Pressable
+                key={value}
+                onPress={() => setZone(value)}
+                style={[styles.zoneOption, zone === value && styles.zoneOptionActive]}>
+                <Text style={[styles.zoneOptionText, zone === value && styles.zoneOptionTextActive]}>{labelText}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      )}
 
       <Text style={styles.label}>Категория</Text>
       <View style={styles.zoneRow}>
@@ -103,6 +212,36 @@ export function AddRecordForm({ onCreated, onCancel }: { onCreated: () => void; 
         placeholder="Что произошло..."
         multiline
       />
+
+      {zone !== 'personal' && (
+        <>
+          <Text style={styles.label}>Вложения (необязательно)</Text>
+          <View style={styles.attachRow}>
+            <Pressable style={styles.attachButton} onPress={pickFiles}>
+              <Ionicons name="attach-outline" size={16} color={theme.colors.textMuted} />
+              <Text style={styles.attachButtonText}>Выбрать файлы</Text>
+            </Pressable>
+            <Pressable style={styles.attachButton} onPress={takePhoto}>
+              <Ionicons name="camera-outline" size={16} color={theme.colors.textMuted} />
+              <Text style={styles.attachButtonText}>Сделать фото</Text>
+            </Pressable>
+          </View>
+          {files.length > 0 && (
+            <View style={styles.fileList}>
+              {files.map((file, index) => (
+                <View key={`${file.uri}-${index}`} style={styles.fileRow}>
+                  <Text style={styles.fileName} numberOfLines={1}>
+                    {file.name}
+                  </Text>
+                  <Pressable onPress={() => removeFile(index)}>
+                    <Ionicons name="close-circle-outline" size={18} color={theme.colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
 
       <View style={styles.actions}>
         <Pressable style={styles.cancelButton} onPress={onCancel}>
@@ -169,6 +308,39 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     zoneOptionTextActive: {
       color: theme.colors.accent,
       fontWeight: '600',
+    },
+    attachRow: {
+      flexDirection: 'row',
+      gap: theme.spacing.sm,
+    },
+    attachButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.xs,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: theme.spacing.sm,
+    },
+    attachButtonText: {
+      fontSize: 13,
+      color: theme.colors.textMuted,
+    },
+    fileList: {
+      marginTop: theme.spacing.sm,
+      gap: theme.spacing.xs,
+    },
+    fileRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: theme.spacing.sm,
+    },
+    fileName: {
+      flex: 1,
+      fontSize: 13,
+      color: theme.colors.text,
     },
     actions: {
       flexDirection: 'row',
