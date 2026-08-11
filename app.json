@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "pro.ssod.biographia",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#1e293b",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -38,7 +38,13 @@
       ],
       "expo-secure-store",
       "expo-video",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Приложению нужен доступ к микрофону, чтобы надиктовать голосовую заметку."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

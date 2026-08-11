@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import * as recordsApi from '@/src/api/records';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
-import { RecordsFeed } from '@/src/features/records/RecordsFeed';
 import { useTheme } from '@/src/theme/useTheme';
+import { DiaryPersonalFeed } from './DiaryPersonalFeed';
 import { SetupScreen } from './SetupScreen';
 import { UnlockScreen } from './UnlockScreen';
 
@@ -85,11 +84,7 @@ export function DiaryScreen() {
           </View>
         </View>
       )}
-      <RecordsFeed
-        loadRecords={recordsApi.fetchMyPersonalRecords}
-        emptyMessage="Пока нет ни одной личной записи."
-        fixedZone="personal"
-      />
+      <DiaryPersonalFeed />
     </View>
   );
 }

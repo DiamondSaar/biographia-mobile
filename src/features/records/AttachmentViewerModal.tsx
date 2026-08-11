@@ -11,14 +11,16 @@ import { useAttachmentFile } from './useAttachmentFile';
 import { useAttachmentMeta } from './useAttachmentMeta';
 import { ImageViewer } from './viewers/ImageViewer';
 import { VideoPlayer } from './viewers/VideoPlayer';
+import { AudioPlayer } from './viewers/AudioPlayer';
 import { PdfViewer } from './viewers/PdfViewer';
 import { TextViewer } from './viewers/TextViewer';
 
-type Kind = 'image' | 'video' | 'pdf' | 'text' | 'external';
+type Kind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'external';
 
 function pickViewerKind(contentType: string, hasPreview: boolean): Kind {
   if (contentType.startsWith('image/')) return 'image';
   if (contentType.startsWith('video/')) return 'video';
+  if (contentType.startsWith('audio/')) return 'audio';
   if (contentType === 'application/pdf') return 'pdf';
   if (contentType.startsWith('text/')) return 'text';
   // Office-документ с готовым серверным PDF-превью (open/org зона,
@@ -119,6 +121,8 @@ export function AttachmentViewerModal({
             <ImageViewer uri={state.uri} />
           ) : viewerKind === 'video' ? (
             <VideoPlayer uri={state.uri} />
+          ) : viewerKind === 'audio' ? (
+            <AudioPlayer uri={state.uri} />
           ) : viewerKind === 'pdf' ? (
             <PdfViewer uri={state.uri} />
           ) : (

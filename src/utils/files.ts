@@ -15,6 +15,7 @@ export function iconForMimeType(contentType: string | null | undefined): string 
   const type = contentType || '';
   if (type.startsWith('image/')) return 'image-outline';
   if (type.startsWith('video/')) return 'videocam-outline';
+  if (type.startsWith('audio/')) return 'mic-outline';
   if (type === 'application/pdf') return 'document-text-outline';
   if (type.startsWith('text/')) return 'reader-outline';
   if (

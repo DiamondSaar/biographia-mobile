@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useDiaryViewMode, type DiaryViewMode } from '@/src/context/DiaryViewModeContext';
 import { useThemeMode, type ThemeMode } from '@/src/context/ThemeModeContext';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -7,6 +8,11 @@ const MODE_OPTIONS: [ThemeMode, string][] = [
   ['system', 'Как в системе'],
   ['light', 'Светлая'],
   ['dark', 'Тёмная'],
+];
+
+const DIARY_VIEW_OPTIONS: [DiaryViewMode, string][] = [
+  ['feed', 'Лента'],
+  ['calendar', 'Календарь'],
 ];
 
 /**
@@ -21,6 +27,7 @@ export function SettingsScreen() {
   const theme = useTheme();
   const styles = createStyles(theme);
   const { mode, setMode } = useThemeMode();
+  const { mode: diaryViewMode, setMode: setDiaryViewMode } = useDiaryViewMode();
 
   return (
     <View style={styles.container}>
@@ -36,6 +43,20 @@ export function SettingsScreen() {
             <Text style={styles.optionLabel}>{label}</Text>
             <View style={[styles.radio, mode === value && styles.radioActive]}>
               {mode === value && <View style={styles.radioDot} />}
+            </View>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Дневник: вид по умолчанию</Text>
+      <Text style={styles.sectionHint}>Как открывать личный дневник — списком записей или календарём месяца.</Text>
+
+      <View style={styles.optionsList}>
+        {DIARY_VIEW_OPTIONS.map(([value, label]) => (
+          <Pressable key={value} style={styles.optionRow} onPress={() => setDiaryViewMode(value)}>
+            <Text style={styles.optionLabel}>{label}</Text>
+            <View style={[styles.radio, diaryViewMode === value && styles.radioActive]}>
+              {diaryViewMode === value && <View style={styles.radioDot} />}
             </View>
           </Pressable>
         ))}
@@ -62,6 +83,9 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: theme.colors.textMuted,
       marginBottom: theme.spacing.md,
       lineHeight: 18,
+    },
+    sectionSpacing: {
+      marginTop: theme.spacing.lg,
     },
     optionsList: {
       backgroundColor: theme.colors.backgroundCard,

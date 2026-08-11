@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -5,6 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 import type { PickedFile } from '@/src/api/attachments';
 import { useTheme } from '@/src/theme/useTheme';
+import { VoiceRecorderOverlay } from './VoiceRecorderOverlay';
 
 /**
  * Выбор файлов для прикрепления - контролируемый компонент (files/
@@ -17,6 +19,7 @@ import { useTheme } from '@/src/theme/useTheme';
 export function AttachmentPicker({ files, onChange }: { files: PickedFile[]; onChange: (files: PickedFile[]) => void }) {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const [isRecording, setIsRecording] = useState(false);
 
   const pickFiles = async () => {
     const result = await DocumentPicker.getDocumentAsync({ multiple: true });
@@ -69,20 +72,34 @@ export function AttachmentPicker({ files, onChange }: { files: PickedFile[]; onC
 
   return (
     <View>
-      <View style={styles.attachRow}>
-        <Pressable style={styles.attachButton} onPress={pickFiles}>
-          <Ionicons name="attach-outline" size={16} color={theme.colors.textMuted} />
-          <Text style={styles.attachButtonText}>Выбрать файлы</Text>
-        </Pressable>
-        <Pressable style={styles.attachButton} onPress={pickFromGallery}>
-          <Ionicons name="images-outline" size={16} color={theme.colors.textMuted} />
-          <Text style={styles.attachButtonText}>Из галереи</Text>
-        </Pressable>
-        <Pressable style={styles.attachButton} onPress={takePhoto}>
-          <Ionicons name="camera-outline" size={16} color={theme.colors.textMuted} />
-          <Text style={styles.attachButtonText}>Сделать фото</Text>
-        </Pressable>
-      </View>
+      {isRecording ? (
+        <VoiceRecorderOverlay
+          onDone={(file) => {
+            onChange([...files, file]);
+            setIsRecording(false);
+          }}
+          onCancel={() => setIsRecording(false)}
+        />
+      ) : (
+        <View style={styles.attachRow}>
+          <Pressable style={styles.attachButton} onPress={pickFiles}>
+            <Ionicons name="attach-outline" size={16} color={theme.colors.textMuted} />
+            <Text style={styles.attachButtonText}>Выбрать файлы</Text>
+          </Pressable>
+          <Pressable style={styles.attachButton} onPress={pickFromGallery}>
+            <Ionicons name="images-outline" size={16} color={theme.colors.textMuted} />
+            <Text style={styles.attachButtonText}>Из галереи</Text>
+          </Pressable>
+          <Pressable style={styles.attachButton} onPress={takePhoto}>
+            <Ionicons name="camera-outline" size={16} color={theme.colors.textMuted} />
+            <Text style={styles.attachButtonText}>Сделать фото</Text>
+          </Pressable>
+          <Pressable style={styles.attachButton} onPress={() => setIsRecording(true)}>
+            <Ionicons name="mic-outline" size={16} color={theme.colors.textMuted} />
+            <Text style={styles.attachButtonText}>Надиктовать</Text>
+          </Pressable>
+        </View>
+      )}
       {files.length > 0 && (
         <View style={styles.fileList}>
           {files.map((file, index) => (

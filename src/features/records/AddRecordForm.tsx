@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View 
 
 import { ApiError } from '@/src/api/client';
 import type { PickedFile } from '@/src/api/attachments';
+import type { EntityResult } from '@/src/api/entities';
 import * as recordsApi from '@/src/api/records';
 import type { RecordType, Zone } from '@/src/api/types';
 import { encryptText } from '@/src/crypto/masterKey';
@@ -12,6 +13,7 @@ import { ACCESS_LEVEL_ORDER, accessRank, type AccessLevel } from '@/src/theme/co
 import { useTheme } from '@/src/theme/useTheme';
 import { AttachmentPicker } from './AttachmentPicker';
 import { uploadRecordAttachment } from './attachmentUpload';
+import { EntityPicker } from './EntityPicker';
 import { recordTypeOptionsForZone, ZONE_OPTIONS } from './labels';
 
 // Одна ошибка вложения - в понятный текст: раньше вложения просто
@@ -63,6 +65,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
   const maxAllowedRank = accessRank(viewer?.access_class);
   const availableAccessLevels = ACCESS_LEVEL_ORDER.filter((level) => accessRank(level) <= maxAllowedRank);
   const [accessLevel, setAccessLevel] = useState<AccessLevel>('G');
+  const [entity, setEntity] = useState<EntityResult | null>(null);
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,6 +81,12 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
     setZone(nextZone);
     if (nextZone !== 'personal' && recordType === 'diary_entry') {
       setRecordType('note');
+    }
+    // Привязка к сущности не показывается и не имеет смысла для личной
+    // зоны (см. EntityPicker ниже) - переключение в personal сбрасывает
+    // уже выбранную, чтобы не уйти в бэкенд с "мёртвым" полем.
+    if (nextZone === 'personal') {
+      setEntity(null);
     }
   };
 
@@ -119,6 +128,8 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
           // нужно (в отличие от владельца/ответственного, тех можно
           // сменить только на веб-версии).
           org_id: zone === 'org' ? (viewer?.organization?.id ?? null) : null,
+          entity_kind: entity?.kind ?? null,
+          entity_id: entity?.id ?? null,
         });
       }
 
@@ -218,6 +229,8 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
           </View>
         </>
       )}
+
+      {zone !== 'personal' && <EntityPicker value={entity} onChange={setEntity} />}
 
       <Text style={styles.label}>Заголовок</Text>
       <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Заголовок записи" />

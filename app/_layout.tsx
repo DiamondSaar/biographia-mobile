@@ -14,6 +14,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
+import { DiaryViewModeProvider } from '@/src/context/DiaryViewModeContext';
 import { PersonalKeyProvider } from '@/src/context/PersonalKeyContext';
 import { ThemeModeProvider, useThemeMode } from '@/src/context/ThemeModeContext';
 
@@ -61,11 +62,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeModeProvider>
-        <AuthProvider>
-          <PersonalKeyProvider>
-            <RootNavigator />
-          </PersonalKeyProvider>
-        </AuthProvider>
+        <DiaryViewModeProvider>
+          <AuthProvider>
+            <PersonalKeyProvider>
+              <RootNavigator />
+            </PersonalKeyProvider>
+          </AuthProvider>
+        </DiaryViewModeProvider>
       </ThemeModeProvider>
     </GestureHandlerRootView>
   );
