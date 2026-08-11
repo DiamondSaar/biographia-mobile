@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import * as recordsApi from '@/src/api/records';
 import { ApiError } from '@/src/api/client';
+import type { PickedFile } from '@/src/api/attachments';
 import { encryptText } from '@/src/crypto/masterKey';
 import type { AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
@@ -11,10 +12,18 @@ import { useAuth } from '@/src/context/AuthContext';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import type { Attachment, BiographyRecord } from '@/src/api/types';
 import { usePersonalContent } from '@/src/features/diary/usePersonalContent';
+import { AttachmentPicker } from './AttachmentPicker';
 import { AttachmentRow } from './AttachmentRow';
 import { AttachmentViewerModal } from './AttachmentViewerModal';
+import { uploadRecordAttachment } from './attachmentUpload';
 import { RECORD_TYPE_LABELS, ZONE_LABELS } from './labels';
 import { formatDateTime } from '@/src/utils/dates';
+
+function describeUploadError(err: unknown): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return 'неизвестная ошибка';
+}
 
 /**
  * Просмотр записи + правка на месте. Кто может редактировать сразу, а
@@ -41,6 +50,7 @@ export function RecordDetailScreen({ id }: { id: number }) {
   const [viewingAttachment, setViewingAttachment] = useState<Attachment | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [newFiles, setNewFiles] = useState<PickedFile[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
@@ -103,6 +113,25 @@ export function RecordDetailScreen({ id }: { id: number }) {
       } else {
         setRecord(result);
         setIsEditing(false);
+
+        // Вложения - отдельным шагом, только после успешного сохранения
+        // текста (и только по прямой правке - у предложений вложений
+        // вообще нет, см. AttachmentPicker ниже, скрыт для !canEditDirectly).
+        if (newFiles.length > 0) {
+          const failed: string[] = [];
+          for (const file of newFiles) {
+            try {
+              await uploadRecordAttachment(record.id, record.zone, file, subkey);
+            } catch (err) {
+              failed.push(`${file.name} (${describeUploadError(err)})`);
+            }
+          }
+          setNewFiles([]);
+          await load(); // подтягивает свежий список вложений
+          if (failed.length > 0) {
+            Alert.alert('Не всё прикрепилось', failed.join('\n'));
+          }
+        }
       }
     } catch (err) {
       setSaveMessage(err instanceof ApiError ? err.message : 'Не удалось сохранить.');
@@ -183,8 +212,19 @@ export function RecordDetailScreen({ id }: { id: number }) {
               </Text>
             </View>
           )}
+          {canEditDirectly && (
+            <>
+              <Text style={styles.label}>Добавить вложения</Text>
+              <AttachmentPicker files={newFiles} onChange={setNewFiles} />
+            </>
+          )}
           <View style={styles.actions}>
-            <Pressable style={styles.cancelButton} onPress={() => setIsEditing(false)}>
+            <Pressable
+              style={styles.cancelButton}
+              onPress={() => {
+                setIsEditing(false);
+                setNewFiles([]);
+              }}>
               <Text style={styles.cancelButtonText}>Отмена</Text>
             </Pressable>
             <Pressable style={styles.submitButton} onPress={handleSave} disabled={isSaving}>

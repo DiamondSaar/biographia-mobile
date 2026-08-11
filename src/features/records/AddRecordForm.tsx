@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as DocumentPicker from 'expo-document-picker';
-import * as ImagePicker from 'expo-image-picker';
 
+import { ApiError } from '@/src/api/client';
 import type { PickedFile } from '@/src/api/attachments';
 import * as recordsApi from '@/src/api/records';
 import type { RecordType, Zone } from '@/src/api/types';
@@ -12,8 +10,19 @@ import { useAuth } from '@/src/context/AuthContext';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import { ACCESS_LEVEL_ORDER, accessRank, type AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
+import { AttachmentPicker } from './AttachmentPicker';
 import { uploadRecordAttachment } from './attachmentUpload';
-import { RECORD_TYPE_OPTIONS, ZONE_OPTIONS } from './labels';
+import { recordTypeOptionsForZone, ZONE_OPTIONS } from './labels';
+
+// Одна ошибка вложения - в понятный текст: раньше вложения просто
+// падали в общий bare catch без сообщения ("не всё прикрепилось" без
+// объяснения, почему) - теперь видно ЧТО именно пошло не так (лимит
+// размера, сеть, дневник заблокирован и т.п.), а не только сам факт.
+function describeUploadError(err: unknown): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return 'неизвестная ошибка';
+}
 
 type AddRecordFormProps = {
   onCreated: () => void;
@@ -38,7 +47,10 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
   const { viewer } = useAuth();
 
   const [zone, setZone] = useState<Zone>(fixedZone ?? 'open');
-  const [recordType, setRecordType] = useState<RecordType>('note');
+  // Открыто из дневника (fixedZone==='personal') - по умолчанию именно
+  // "Запись в дневник", не "Свободная заметка": это и есть основной сценарий
+  // личной зоны, см. запрос пользователя про категории.
+  const [recordType, setRecordType] = useState<RecordType>(fixedZone === 'personal' ? 'diary_entry' : 'note');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   // Ранг доступа - ограничен собственным рангом пользователя (нельзя
@@ -56,42 +68,17 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isPersonalLocked = zone === 'personal' && diaryStatus !== 'unlocked';
+  const recordTypeOptions = recordTypeOptionsForZone(zone);
 
-  const pickFiles = async () => {
-    const result = await DocumentPicker.getDocumentAsync({ multiple: true });
-    if (result.canceled || !result.assets) return;
-    setFiles((prev) => [
-      ...prev,
-      ...result.assets.map((asset) => ({
-        uri: asset.uri,
-        name: asset.name,
-        type: asset.mimeType || 'application/octet-stream',
-      })),
-    ]);
-  };
-
-  const takePhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      setError('Нет разрешения на использование камеры.');
-      return;
+  // "Запись в дневник" не имеет смысла вне личной зоны (бэкенд её и не
+  // примет, см. labels.ts) - если человек уже выбрал её, а потом
+  // переключил зону на open/org, тихо откатываем на "Свободная заметка",
+  // а не оставляем невалидную комбинацию до самой отправки формы.
+  const handleZoneChange = (nextZone: Zone) => {
+    setZone(nextZone);
+    if (nextZone !== 'personal' && recordType === 'diary_entry') {
+      setRecordType('note');
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (result.canceled || !result.assets) return;
-    setFiles((prev) => [
-      ...prev,
-      ...result.assets.map((asset, index) => ({
-        uri: asset.uri,
-        // Камера не всегда отдаёт имя файла (особенно на Android) -
-        // придумываем своё, чтобы не отправлять на сервер пустую строку.
-        name: asset.fileName || `photo-${Date.now()}-${index}.jpg`,
-        type: asset.mimeType || 'image/jpeg',
-      })),
-    ]);
-  };
-
-  const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async () => {
@@ -148,15 +135,15 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
         for (const file of files) {
           try {
             await uploadRecordAttachment(record.id, zone, file, subkey);
-          } catch {
-            failed.push(file.name);
+          } catch (err) {
+            failed.push(`${file.name} (${describeUploadError(err)})`);
           }
         }
         if (failed.length > 0) {
           // setError() здесь не поможет - форма уже закрылась строчкой
           // выше (onCreated() обычно прячет её в родителе), обычный
           // Alert - единственный способ вообще показать эту ошибку.
-          Alert.alert('Не всё прикрепилось', `Запись сохранена, но не удалось прикрепить: ${failed.join(', ')}`);
+          Alert.alert('Не всё прикрепилось', `Запись сохранена, но не удалось прикрепить:\n${failed.join('\n')}`);
         }
       }
     } catch {
@@ -186,7 +173,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
             {ZONE_OPTIONS.map(([value, labelText]) => (
               <Pressable
                 key={value}
-                onPress={() => setZone(value)}
+                onPress={() => handleZoneChange(value)}
                 style={[styles.zoneOption, zone === value && styles.zoneOptionActive]}>
                 <Text style={[styles.zoneOptionText, zone === value && styles.zoneOptionTextActive]}>{labelText}</Text>
               </Pressable>
@@ -197,7 +184,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
 
       <Text style={styles.label}>Категория</Text>
       <View style={styles.zoneRow}>
-        {RECORD_TYPE_OPTIONS.map(([value, labelText]) => (
+        {recordTypeOptions.map(([value, labelText]) => (
           <Pressable
             key={value}
             onPress={() => setRecordType(value)}
@@ -245,30 +232,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
       />
 
       <Text style={styles.label}>Вложения (необязательно)</Text>
-      <View style={styles.attachRow}>
-        <Pressable style={styles.attachButton} onPress={pickFiles}>
-          <Ionicons name="attach-outline" size={16} color={theme.colors.textMuted} />
-          <Text style={styles.attachButtonText}>Выбрать файлы</Text>
-        </Pressable>
-        <Pressable style={styles.attachButton} onPress={takePhoto}>
-          <Ionicons name="camera-outline" size={16} color={theme.colors.textMuted} />
-          <Text style={styles.attachButtonText}>Сделать фото</Text>
-        </Pressable>
-      </View>
-      {files.length > 0 && (
-        <View style={styles.fileList}>
-          {files.map((file, index) => (
-            <View key={`${file.uri}-${index}`} style={styles.fileRow}>
-              <Text style={styles.fileName} numberOfLines={1}>
-                {file.name}
-              </Text>
-              <Pressable onPress={() => removeFile(index)}>
-                <Ionicons name="close-circle-outline" size={18} color={theme.colors.textMuted} />
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      )}
+      <AttachmentPicker files={files} onChange={setFiles} />
 
       <View style={styles.actions}>
         <Pressable style={styles.cancelButton} onPress={onCancel}>
@@ -347,39 +311,6 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     accessOptionText: {
       fontSize: 13,
       fontWeight: '700',
-    },
-    attachRow: {
-      flexDirection: 'row',
-      gap: theme.spacing.sm,
-    },
-    attachButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: theme.spacing.xs,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      borderRadius: theme.radius.md,
-      paddingHorizontal: theme.spacing.md,
-      paddingVertical: theme.spacing.sm,
-    },
-    attachButtonText: {
-      fontSize: 13,
-      color: theme.colors.textMuted,
-    },
-    fileList: {
-      marginTop: theme.spacing.sm,
-      gap: theme.spacing.xs,
-    },
-    fileRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: theme.spacing.sm,
-    },
-    fileName: {
-      flex: 1,
-      fontSize: 13,
-      color: theme.colors.text,
     },
     actions: {
       flexDirection: 'row',

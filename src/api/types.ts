@@ -42,7 +42,10 @@ export type RecordType =
   | 'component_replacement'
   | 'relocation'
   | 'incident'
-  | 'note';
+  | 'note'
+  // Только для personal-зоны - бэкенд отклоняет создание с любой другой
+  // зоной (app/records/routes.py::create_record).
+  | 'diary_entry';
 
 export type Attachment = {
   id: number;
