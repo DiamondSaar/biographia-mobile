@@ -1,3 +1,5 @@
+import { Directory, File, Paths } from 'expo-file-system';
+
 import { request, requestBytes } from './client';
 import type { Attachment } from './types';
 
@@ -6,16 +8,50 @@ import type { Attachment } from './types';
  * GET /attachments/<id>[/thumbnail|/preview] на бэкенде
  * (app/records/routes.py, лимит - 25 МБ, MAX_ATTACHMENT_BYTES там же).
  *
- * "Файл" для FormData в React Native выглядит не так, как в браузере: в
- * браузере это готовый объект File, здесь вместо него передаётся
- * { uri, name, type } - fetch на RN сам умеет превратить такой объект в
- * часть multipart-запроса по его uri.
+ * ВАЖНО про части FormData: старый приём React Native -
+ * `formData.append('file', {uri, name, type})` - здесь НЕ работает.
+ * Global `fetch` в этом проекте (SDK 57) - это `expo`'s собственная
+ * реализация (node_modules/expo/src/winter/fetch/convertFormData.ts),
+ * а не встроенный в React Native fetch - она принимает только части,
+ * реально совместимые с Blob (есть метод .bytes()), и явно бросает
+ * "Unsupported FormDataPart implementation" на классический
+ * RN-формат {uri,name,type} (найдено чтением её исходников после
+ * живого теста на телефоне - ошибка воспроизводилась стабильно).
+ * Поэтому каждая часть оборачивается через toNamedFile() ниже - новый
+ * File API (expo-file-system) уже умеет и .bytes(), и .name/.type,
+ * этого достаточно, чтобы converyFormDataAsync распознал часть
+ * правильно.
  */
 export type PickedFile = {
   uri: string;
   name: string;
   type: string;
 };
+
+const UPLOAD_PARTS_DIR_NAME = 'biographia-upload-parts';
+
+function uploadPartsDirectory(): Directory {
+  const dir = new Directory(Paths.cache, UPLOAD_PARTS_DIR_NAME);
+  if (!dir.exists) dir.create({ intermediates: true });
+  return dir;
+}
+
+/**
+ * Файл с правильным именем/типом для FormData - .name/.type у File
+ * определяются по РЕАЛЬНОМУ имени файла на диске, а не по тому, что
+ * записано в PickedFile.name (у пикера/камеры/шифрованного временного
+ * файла оно почти всегда другое - случайный кеш-путь). Поэтому байты
+ * копируются в новый временный файл с нужным именем, и уже он идёт в
+ * FormData - недорого (вложения ограничены 25 МБ), зато .name/.type
+ * получаются автоматически верными, без риска разойтись.
+ */
+function toNamedFile(picked: PickedFile): File {
+  const destination = new File(uploadPartsDirectory(), picked.name);
+  if (destination.exists) destination.delete();
+  const bytes = new File(picked.uri).bytesSync();
+  destination.write(bytes);
+  return destination;
+}
 
 /**
  * Open/org зона - файл уходит как есть (сервер видит настоящее имя/тип).
@@ -25,12 +61,9 @@ export type PickedFile = {
  */
 export function uploadAttachment(recordId: number, file: PickedFile, thumbnail?: PickedFile): Promise<Attachment> {
   const formData = new FormData();
-  // @ts-expect-error - React Native's FormData accepts {uri,name,type},
-  // не совпадает с DOM-типом Blob/File, которого ждёт lib.dom.d.ts.
-  formData.append('file', { uri: file.uri, name: file.name, type: file.type });
+  formData.append('file', toNamedFile(file));
   if (thumbnail) {
-    // @ts-expect-error - см. выше.
-    formData.append('thumbnail', { uri: thumbnail.uri, name: thumbnail.name, type: thumbnail.type });
+    formData.append('thumbnail', toNamedFile(thumbnail));
   }
   return request(`/records/${recordId}/attachments`, { method: 'POST', body: formData, isFormData: true });
 }
@@ -48,14 +81,17 @@ export type UploadEncryptedAttachmentParams = {
   metaNonce: string;
 };
 
-/** Личная (зашифрованная) зона - Phase 1c, см. корневой README.md. */
+/**
+ * Личная (зашифрованная) зона - Phase 1c, см. корневой README.md.
+ * Личной зоне имя/тип файла не важны вообще (сервер их даже не читает -
+ * storage.put_object(..., None) на бэкенде) - можно оборачивать файл
+ * как есть, без переименования, в отличие от uploadAttachment выше.
+ */
 export function uploadEncryptedAttachment(recordId: number, params: UploadEncryptedAttachmentParams): Promise<Attachment> {
   const formData = new FormData();
-  // @ts-expect-error - см. uploadAttachment выше.
-  formData.append('file', { uri: params.file.uri, name: params.file.name, type: 'application/octet-stream' });
+  formData.append('file', new File(params.file.uri));
   if (params.thumbnail) {
-    // @ts-expect-error - см. выше.
-    formData.append('thumbnail', { uri: params.thumbnail.uri, name: params.thumbnail.name, type: 'application/octet-stream' });
+    formData.append('thumbnail', new File(params.thumbnail.uri));
   }
   formData.append('encrypted_meta', params.encryptedMeta);
   formData.append('meta_nonce', params.metaNonce);
