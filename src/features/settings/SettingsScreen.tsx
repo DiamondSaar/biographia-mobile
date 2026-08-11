@@ -1,9 +1,9 @@
-import Constants from 'expo-constants';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useDiaryViewMode, type DiaryViewMode } from '@/src/context/DiaryViewModeContext';
 import { useThemeMode, type ThemeMode } from '@/src/context/ThemeModeContext';
 import { useTheme } from '@/src/theme/useTheme';
+import { UpdateSection } from './UpdateSection';
 
 const MODE_OPTIONS: [ThemeMode, string][] = [
   ['system', 'Как в системе'],
@@ -29,14 +29,6 @@ export function SettingsScreen() {
   const styles = createStyles(theme);
   const { mode, setMode } = useThemeMode();
   const { mode: diaryViewMode, setMode: setDiaryViewMode } = useDiaryViewMode();
-  // versionName (app.json's "version") никогда не меняется между сборками
-  // - единственное, что реально отличает одну установку от другой,
-  // это versionCode (растёт с каждой EAS-сборкой, см. eas.json's
-  // autoIncrement). Показываем его явно - иначе после обновления apk
-  // нет способа убедиться на самом телефоне, что установилась именно
-  // новая версия, а не та же самая.
-  const versionName = Constants.expoConfig?.version ?? '?';
-  const versionCode = Constants.expoConfig?.android?.versionCode ?? '?';
 
   return (
     <View style={styles.container}>
@@ -71,9 +63,9 @@ export function SettingsScreen() {
         ))}
       </View>
 
-      <Text style={styles.versionText}>
-        Версия {versionName} (сборка {versionCode})
-      </Text>
+      <View style={styles.sectionSpacing}>
+        <UpdateSection />
+      </View>
     </View>
   );
 }
@@ -137,12 +129,6 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       height: 10,
       borderRadius: theme.radius.round,
       backgroundColor: theme.colors.accent,
-    },
-    versionText: {
-      textAlign: 'center',
-      fontSize: 12,
-      color: theme.colors.textMuted,
-      marginTop: theme.spacing.xl,
     },
   });
 }

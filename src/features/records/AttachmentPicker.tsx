@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,6 +7,23 @@ import * as ImagePicker from 'expo-image-picker';
 import type { PickedFile } from '@/src/api/attachments';
 import { useTheme } from '@/src/theme/useTheme';
 import { VoiceRecorderOverlay } from './VoiceRecorderOverlay';
+
+// Разрешение на камеру/галерею когда-то отклонено ("не спрашивать
+// больше") - ОС больше не покажет системный диалог повторно, единственный
+// выход - открыть настройки приложения вручную. Раньше кнопки в этом
+// случае просто молча ничего не делали (`if (!permission.granted) return`)
+// - выглядело как "фото не прикрепляются", хотя на самом деле даже
+// системный пикер ни разу не открывался.
+function showPermissionDeniedAlert(what: string) {
+  Alert.alert(
+    'Нет доступа',
+    `Приложению не разрешён доступ к ${what}. Откройте настройки телефона → Приложения → Biographia → Разрешения и включите доступ вручную.`,
+    [
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Открыть настройки', onPress: () => Linking.openSettings() },
+    ],
+  );
+}
 
 /**
  * Выбор файлов для прикрепления - контролируемый компонент (files/
@@ -22,21 +39,28 @@ export function AttachmentPicker({ files, onChange }: { files: PickedFile[]; onC
   const [isRecording, setIsRecording] = useState(false);
 
   const pickFiles = async () => {
-    const result = await DocumentPicker.getDocumentAsync({ multiple: true });
-    if (result.canceled || !result.assets) return;
-    onChange([
-      ...files,
-      ...result.assets.map((asset) => ({
-        uri: asset.uri,
-        name: asset.name,
-        type: asset.mimeType || 'application/octet-stream',
-      })),
-    ]);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ multiple: true });
+      if (result.canceled || !result.assets) return;
+      onChange([
+        ...files,
+        ...result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType || 'application/octet-stream',
+        })),
+      ]);
+    } catch (err) {
+      Alert.alert('Не удалось выбрать файл', err instanceof Error ? err.message : 'неизвестная ошибка');
+    }
   };
 
   const pickFromGallery = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
+    if (!permission.granted) {
+      showPermissionDeniedAlert('галерее');
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.9 });
     if (result.canceled || !result.assets) return;
     onChange([
@@ -51,7 +75,10 @@ export function AttachmentPicker({ files, onChange }: { files: PickedFile[]; onC
 
   const takePhoto = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return;
+    if (!permission.granted) {
+      showPermissionDeniedAlert('камере');
+      return;
+    }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (result.canceled || !result.assets) return;
     onChange([
