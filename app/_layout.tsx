@@ -10,6 +10,7 @@ import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
@@ -52,14 +53,21 @@ export default function RootLayout() {
   // аккаунт им нечего делать. Все три оборачивают вообще всё дерево
   // экранов - единственное место, где они нужны, дальше любой экран
   // может позвать useTheme()/useAuth()/usePersonalKey().
+  //
+  // GestureHandlerRootView - обязателен по докам react-native-gesture-handler
+  // (используется просмотрщиком изображений с pinch/pan-зумом,
+  // src/features/records/viewers/ImageViewer.tsx) - без этой обёртки
+  // жесты работают ненадёжно/не везде на Android.
   return (
-    <ThemeModeProvider>
-      <AuthProvider>
-        <PersonalKeyProvider>
-          <RootNavigator />
-        </PersonalKeyProvider>
-      </AuthProvider>
-    </ThemeModeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeModeProvider>
+        <AuthProvider>
+          <PersonalKeyProvider>
+            <RootNavigator />
+          </PersonalKeyProvider>
+        </AuthProvider>
+      </ThemeModeProvider>
+    </GestureHandlerRootView>
   );
 }
 

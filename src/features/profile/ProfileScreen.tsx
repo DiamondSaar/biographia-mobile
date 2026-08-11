@@ -19,7 +19,7 @@ export function ProfileScreen() {
   const theme = useTheme();
   const styles = createStyles(theme);
   const { viewer, logout } = useAuth();
-  const { clearBiometricKey } = usePersonalKey();
+  const { status: diaryStatus, clearBiometricKey, lock, tryBiometricUnlock } = usePersonalKey();
   const router = useRouter();
 
   // Биометрический ключ дневника (см. PersonalKeyContext.tsx) привязан к
@@ -33,6 +33,26 @@ export function ProfileScreen() {
     await logout();
   };
 
+  // Замочек - единственное место, где дневник можно ЗАКРЫТЬ вручную (до
+  // этого - только автоматически, при выходе из аккаунта/закрытии
+  // приложения, см. lock() в PersonalKeyContext.tsx - функция уже
+  // существовала, просто не была подключена ни к одной кнопке).
+  // Открыть одним тапом получится только если уже включена биометрия -
+  // иначе (или если биометрия не сработала) ведём на вкладку "Дневник",
+  // где есть полноценная форма пароля/восстановления, короткая кнопка
+  // здесь для этого не место.
+  const handleToggleDiaryLock = async () => {
+    if (diaryStatus === 'unlocked') {
+      lock();
+      return;
+    }
+    if (diaryStatus === 'locked') {
+      const unlocked = await tryBiometricUnlock();
+      if (unlocked) return;
+    }
+    router.push('/(tabs)/diary');
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -43,6 +63,13 @@ export function ProfileScreen() {
           <Text style={styles.name}>{viewer?.display_name || viewer?.username}</Text>
           <Text style={styles.org}>{viewer?.organization?.name ?? viewer?.username}</Text>
         </View>
+        <Pressable style={styles.iconButton} onPress={handleToggleDiaryLock}>
+          <Ionicons
+            name={diaryStatus === 'unlocked' ? 'lock-open-outline' : 'lock-closed-outline'}
+            size={22}
+            color={diaryStatus === 'unlocked' ? theme.colors.accent : theme.colors.textMuted}
+          />
+        </Pressable>
         <Pressable style={styles.iconButton} onPress={() => router.push('/settings')}>
           <Ionicons name="settings-outline" size={22} color={theme.colors.textMuted} />
         </Pressable>

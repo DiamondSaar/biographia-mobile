@@ -106,3 +106,15 @@ export const accessLevelColors = {
 // чтобы опечатка вроде "Z" ловилась TypeScript'ом на этапе набора кода,
 // а не падением в рантайме на телефоне пользователя.
 export type AccessLevel = keyof typeof accessLevelColors.light;
+
+// Порядок от самого открытого к самому закрытому - совпадает с access_rank()
+// на бэкенде (app/core/access.py) и с порядком объявления в
+// accessLevelColors выше. Используется и для пикера ранга при создании
+// записи (AddRecordForm.tsx), и чтобы ограничить список только теми
+// рангами, что не выше собственного ранга пользователя.
+export const ACCESS_LEVEL_ORDER: AccessLevel[] = ['G', 'F', 'E', 'D', 'C', 'B', 'A', 'S'];
+
+export function accessRank(level: string | null | undefined): number {
+  const index = ACCESS_LEVEL_ORDER.indexOf((level ?? 'G') as AccessLevel);
+  return index === -1 ? 0 : index;
+}

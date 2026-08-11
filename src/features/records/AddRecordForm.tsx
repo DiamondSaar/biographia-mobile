@@ -4,12 +4,15 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
-import { uploadAttachment, type PickedFile } from '@/src/api/attachments';
+import type { PickedFile } from '@/src/api/attachments';
 import * as recordsApi from '@/src/api/records';
 import type { RecordType, Zone } from '@/src/api/types';
 import { encryptText } from '@/src/crypto/masterKey';
+import { useAuth } from '@/src/context/AuthContext';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
+import { ACCESS_LEVEL_ORDER, accessRank, type AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
+import { uploadRecordAttachment } from './attachmentUpload';
 import { RECORD_TYPE_OPTIONS, ZONE_OPTIONS } from './labels';
 
 type AddRecordFormProps = {
@@ -32,21 +35,28 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
   const theme = useTheme();
   const styles = createStyles(theme);
   const { status: diaryStatus, subkey } = usePersonalKey();
+  const { viewer } = useAuth();
 
   const [zone, setZone] = useState<Zone>(fixedZone ?? 'open');
   const [recordType, setRecordType] = useState<RecordType>('note');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  // Ранг доступа - ограничен собственным рангом пользователя (нельзя
+  // создать запись строже своего допуска), та же проверка, что бэкенд
+  // всё равно сделает сам (_validate_access_level_ceiling в
+  // app/records/routes.py) - здесь просто чтобы не предлагать заведомо
+  // отклоняемые варианты. По умолчанию - самый открытый доступный ранг,
+  // не собственный максимум (записи по умолчанию не должны запираться
+  // сильнее, чем нужно).
+  const maxAllowedRank = accessRank(viewer?.access_class);
+  const availableAccessLevels = ACCESS_LEVEL_ORDER.filter((level) => accessRank(level) <= maxAllowedRank);
+  const [accessLevel, setAccessLevel] = useState<AccessLevel>('G');
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isPersonalLocked = zone === 'personal' && diaryStatus !== 'unlocked';
 
-  // Вложения не показываются для личной зоны вообще - бэкенд отвечает
-  // 501 на попытку загрузить файл в zone=personal (шифрование по файлу
-  // ещё не перенесено, см. корневой README.md "Осознанно отложено") -
-  // не показываем контрол, который заведомо не сработает.
   const pickFiles = async () => {
     const result = await DocumentPicker.getDocumentAsync({ multiple: true });
     if (result.canceled || !result.assets) return;
@@ -96,61 +106,59 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
     setError(null);
     setIsSubmitting(true);
     try {
+      let record;
       if (zone === 'personal') {
         // Открытый текст {title, body} никогда не покидает устройство -
         // шифруется в один AEAD-блок (см. encryptText в
         // src/crypto/masterKey.ts) тем же способом, что и на веб-версии;
-        // сервер получает только шифртекст, decode которого без ключа
-        // невозможен. subkey гарантированно не null здесь - проверка
-        // isPersonalLocked выше уже отсекла случай "дневник заблокирован".
+        // сервер получает только шифртекст. subkey гарантированно не
+        // null здесь - проверка isPersonalLocked выше уже отсекла случай
+        // "дневник заблокирован".
         const { ciphertext, nonce } = encryptText(
           subkey!,
           JSON.stringify({ title: title.trim() || null, body: body.trim() || null }),
         );
-        await recordsApi.createRecord({
-          zone,
-          record_type: recordType,
-          encrypted_content: ciphertext,
-          nonce,
-        });
+        record = await recordsApi.createRecord({ zone, record_type: recordType, encrypted_content: ciphertext, nonce });
       } else {
-        const record = await recordsApi.createRecord({
+        record = await recordsApi.createRecord({
           zone,
           record_type: recordType,
           title: title.trim() || null,
           body: body.trim() || null,
-          // 'G' - самый открытый ранг. Веб-версия даёт выбрать ранг при
-          // создании; здесь для простоты фиксирован - при необходимости
-          // запись всегда можно поднять в ранге через веб-интерфейс
-          // (владелец/суперадмин).
-          access_level: 'G',
+          access_level: accessLevel,
+          // org-зона требует org_id (app/records/routes.py:
+          // org_id_required_for_org_zone) - у обычного пользователя это
+          // всегда его собственная организация, отдельного пикера не
+          // нужно (в отличие от владельца/ответственного, тех можно
+          // сменить только на веб-версии).
+          org_id: zone === 'org' ? (viewer?.organization?.id ?? null) : null,
         });
-        // Запись уже сохранена на сервере - закрываем форму независимо
-        // от того, что будет с загрузкой файлов ниже. Раньше в веб-версии
-        // была ошибка ровно наоборот (форма ждала успеха и записи, и
-        // вложения одновременно) - при обрыве загрузки файла человек не
-        // видел, что запись уже создана, и по повторному нажатию
-        // получал дубли. Здесь тот же урок учтён сразу.
-        onCreated();
-        if (files.length > 0) {
-          const failed: string[] = [];
-          for (const file of files) {
-            try {
-              await uploadAttachment(record.id, file);
-            } catch {
-              failed.push(file.name);
-            }
-          }
-          if (failed.length > 0) {
-            // setError() здесь не поможет - форма уже закрылась строчкой
-            // выше (onCreated() обычно прячет её в родителе), обычный
-            // Alert - единственный способ вообще показать эту ошибку.
-            Alert.alert('Не всё прикрепилось', `Запись сохранена, но не удалось прикрепить: ${failed.join(', ')}`);
+      }
+
+      // Запись уже сохранена на сервере - закрываем форму независимо от
+      // того, что будет с загрузкой файлов ниже. Раньше в веб-версии
+      // была ошибка ровно наоборот (форма ждала успеха и записи, и
+      // вложения одновременно) - при обрыве загрузки файла человек не
+      // видел, что запись уже создана, и по повторному нажатию получал
+      // дубли. Здесь тот же урок учтён сразу, для обеих зон.
+      onCreated();
+
+      if (files.length > 0) {
+        const failed: string[] = [];
+        for (const file of files) {
+          try {
+            await uploadRecordAttachment(record.id, zone, file, subkey);
+          } catch {
+            failed.push(file.name);
           }
         }
-        return;
+        if (failed.length > 0) {
+          // setError() здесь не поможет - форма уже закрылась строчкой
+          // выше (onCreated() обычно прячет её в родителе), обычный
+          // Alert - единственный способ вообще показать эту ошибку.
+          Alert.alert('Не всё прикрепилось', `Запись сохранена, но не удалось прикрепить: ${failed.join(', ')}`);
+        }
       }
-      onCreated();
     } catch {
       setError('Не удалось сохранить запись. Проверьте соединение.');
     } finally {
@@ -201,6 +209,29 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
         ))}
       </View>
 
+      {zone !== 'personal' && (
+        <>
+          <Text style={styles.label}>Ранг доступа</Text>
+          <View style={styles.zoneRow}>
+            {availableAccessLevels.map((level) => (
+              <Pressable
+                key={level}
+                onPress={() => setAccessLevel(level)}
+                style={[
+                  styles.accessOption,
+                  {
+                    borderColor: theme.accessLevelColors[level].border,
+                    backgroundColor:
+                      accessLevel === level ? theme.accessLevelColors[level].bg : theme.colors.backgroundCard,
+                  },
+                ]}>
+                <Text style={[styles.accessOptionText, { color: theme.accessLevelColors[level].text }]}>{level}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      )}
+
       <Text style={styles.label}>Заголовок</Text>
       <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Заголовок записи" />
 
@@ -213,34 +244,30 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
         multiline
       />
 
-      {zone !== 'personal' && (
-        <>
-          <Text style={styles.label}>Вложения (необязательно)</Text>
-          <View style={styles.attachRow}>
-            <Pressable style={styles.attachButton} onPress={pickFiles}>
-              <Ionicons name="attach-outline" size={16} color={theme.colors.textMuted} />
-              <Text style={styles.attachButtonText}>Выбрать файлы</Text>
-            </Pressable>
-            <Pressable style={styles.attachButton} onPress={takePhoto}>
-              <Ionicons name="camera-outline" size={16} color={theme.colors.textMuted} />
-              <Text style={styles.attachButtonText}>Сделать фото</Text>
-            </Pressable>
-          </View>
-          {files.length > 0 && (
-            <View style={styles.fileList}>
-              {files.map((file, index) => (
-                <View key={`${file.uri}-${index}`} style={styles.fileRow}>
-                  <Text style={styles.fileName} numberOfLines={1}>
-                    {file.name}
-                  </Text>
-                  <Pressable onPress={() => removeFile(index)}>
-                    <Ionicons name="close-circle-outline" size={18} color={theme.colors.textMuted} />
-                  </Pressable>
-                </View>
-              ))}
+      <Text style={styles.label}>Вложения (необязательно)</Text>
+      <View style={styles.attachRow}>
+        <Pressable style={styles.attachButton} onPress={pickFiles}>
+          <Ionicons name="attach-outline" size={16} color={theme.colors.textMuted} />
+          <Text style={styles.attachButtonText}>Выбрать файлы</Text>
+        </Pressable>
+        <Pressable style={styles.attachButton} onPress={takePhoto}>
+          <Ionicons name="camera-outline" size={16} color={theme.colors.textMuted} />
+          <Text style={styles.attachButtonText}>Сделать фото</Text>
+        </Pressable>
+      </View>
+      {files.length > 0 && (
+        <View style={styles.fileList}>
+          {files.map((file, index) => (
+            <View key={`${file.uri}-${index}`} style={styles.fileRow}>
+              <Text style={styles.fileName} numberOfLines={1}>
+                {file.name}
+              </Text>
+              <Pressable onPress={() => removeFile(index)}>
+                <Ionicons name="close-circle-outline" size={18} color={theme.colors.textMuted} />
+              </Pressable>
             </View>
-          )}
-        </>
+          ))}
+        </View>
       )}
 
       <View style={styles.actions}>
@@ -308,6 +335,18 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     zoneOptionTextActive: {
       color: theme.colors.accent,
       fontWeight: '600',
+    },
+    accessOption: {
+      borderWidth: 1,
+      borderRadius: theme.radius.round,
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    accessOptionText: {
+      fontSize: 13,
+      fontWeight: '700',
     },
     attachRow: {
       flexDirection: 'row',

@@ -46,10 +46,24 @@ export type RecordType =
 
 export type Attachment = {
   id: number;
-  filename: string;
+  // Личная зона: filename/content_type всегда null на сервере (никогда
+  // не видел их в открытом виде) - настоящие значения в encrypted_meta/
+  // meta_nonce, расшифровываются на устройстве через decryptFileMeta
+  // (src/crypto/masterKey.ts). Open/org - как обычно, обычные строки.
+  filename: string | null;
   content_type: string | null;
   size_bytes: number;
   caption: string | null;
+  encrypted_meta: string | null;
+  meta_nonce: string | null;
+  // has_thumbnail/has_preview - только флаги, не сами байты. Сами байты -
+  // отдельные маршруты GET /attachments/<id>/thumbnail и .../preview
+  // (см. src/api/attachments.ts). Для личной зоны миниатюра - тоже
+  // шифртекст, nonce встроен в первые 24 байта самого блока (та же
+  // договорённость, что и для основного файла - см. encryptBytes/
+  // decryptBytes в src/crypto/masterKey.ts), отдельного поля не нужно.
+  has_thumbnail: boolean;
+  has_preview: boolean;
   uploaded_by: string;
   created_at: string;
 };

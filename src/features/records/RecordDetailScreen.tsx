@@ -9,11 +9,12 @@ import type { AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
 import { useAuth } from '@/src/context/AuthContext';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
-import type { BiographyRecord } from '@/src/api/types';
+import type { Attachment, BiographyRecord } from '@/src/api/types';
 import { usePersonalContent } from '@/src/features/diary/usePersonalContent';
+import { AttachmentRow } from './AttachmentRow';
+import { AttachmentViewerModal } from './AttachmentViewerModal';
 import { RECORD_TYPE_LABELS, ZONE_LABELS } from './labels';
 import { formatDateTime } from '@/src/utils/dates';
-import { formatFileSize } from '@/src/utils/files';
 
 /**
  * Просмотр записи + правка на месте. Кто может редактировать сразу, а
@@ -37,6 +38,7 @@ export function RecordDetailScreen({ id }: { id: number }) {
   const [record, setRecord] = useState<BiographyRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [viewingAttachment, setViewingAttachment] = useState<Attachment | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -203,19 +205,8 @@ export function RecordDetailScreen({ id }: { id: number }) {
             <View style={styles.attachmentsBox}>
               <Text style={styles.label}>Вложения</Text>
               {record.attachments.map((attachment) => (
-                <View key={attachment.id} style={styles.attachmentRow}>
-                  <Ionicons name="document-attach-outline" size={16} color={theme.colors.textMuted} />
-                  <Text style={styles.attachmentName} numberOfLines={1}>
-                    {attachment.filename}
-                  </Text>
-                  <Text style={styles.attachmentSize}>{formatFileSize(attachment.size_bytes)}</Text>
-                </View>
+                <AttachmentRow key={attachment.id} attachment={attachment} onPress={() => setViewingAttachment(attachment)} />
               ))}
-              {/* Скачивание/открытие файла - отдельный шаг (нужны
-                  expo-file-system + expo-sharing, т.к. GET /attachments/<id>
-                  тоже требует Authorization: Bearer, просто открыть URL в
-                  браузере телефона не получится - заголовок так не
-                  подставить). Здесь пока только видно, что вложения есть. */}
             </View>
           )}
 
@@ -236,6 +227,12 @@ export function RecordDetailScreen({ id }: { id: number }) {
           )}
         </>
       )}
+
+      <AttachmentViewerModal
+        attachment={viewingAttachment}
+        visible={!!viewingAttachment}
+        onClose={() => setViewingAttachment(null)}
+      />
     </ScrollView>
   );
 }
@@ -391,21 +388,6 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     attachmentsBox: {
       marginTop: theme.spacing.lg,
-    },
-    attachmentRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: theme.spacing.sm,
-      paddingVertical: theme.spacing.xs,
-    },
-    attachmentName: {
-      flex: 1,
-      fontSize: 13,
-      color: theme.colors.text,
-    },
-    attachmentSize: {
-      fontSize: 12,
-      color: theme.colors.textMuted,
     },
     errorText: {
       color: theme.colors.danger,

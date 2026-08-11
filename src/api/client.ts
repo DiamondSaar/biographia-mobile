@@ -63,3 +63,25 @@ export async function request<T = unknown>(path: string, options: RequestOptions
 
   return data as T;
 }
+
+/**
+ * Скачивание бинарного содержимого (вложение/миниатюра/PDF-превью) -
+ * отдельная функция, а не ветка внутри request(), потому что ответ там
+ * не JSON вообще, разбирать его через response.json() было бы ошибкой.
+ * Тот же Bearer-токен, тот же базовый URL - просто другой способ читать
+ * тело ответа.
+ */
+export async function requestBytes(path: string): Promise<Uint8Array> {
+  const token = await getStoredToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+  if (!response.ok) {
+    throw new ApiError(`request_failed_${response.status}`, response.status, null);
+  }
+  const buffer = await response.arrayBuffer();
+  return new Uint8Array(buffer);
+}

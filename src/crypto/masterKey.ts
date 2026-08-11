@@ -231,3 +231,62 @@ export function decryptText(subkey: Uint8Array, ciphertext: string, nonce: strin
   const decrypted = xchacha20poly1305(subkey, base64ToBytes(nonce)).decrypt(base64ToBytes(ciphertext));
   return new TextDecoder().decode(decrypted);
 }
+
+// Шифрование сырых байтов файла - тот же AEAD, что и encryptText выше, но
+// БЕЗ прогона через base64/строки: файлы вложений могут быть мегабайты,
+// а bytesToBase64/base64ToBytes построчно бегают по каждому символу -
+// нормально для короткого JSON записи, но не для файла. Здесь вход и
+// выход - сразу Uint8Array, base64 в HTTP-запрос кодируется отдельно, на
+// уровне API-клиента (см. src/api/attachments.ts), а не здесь.
+export function encryptBytes(
+  subkey: Uint8Array,
+  plaintext: Uint8Array,
+): { ciphertext: Uint8Array; nonce: Uint8Array } {
+  const nonce = randomBytes(24);
+  const ciphertext = xchacha20poly1305(subkey, nonce).encrypt(plaintext);
+  return { ciphertext, nonce };
+}
+
+export function decryptBytes(subkey: Uint8Array, ciphertext: Uint8Array, nonce: Uint8Array): Uint8Array {
+  return xchacha20poly1305(subkey, nonce).decrypt(ciphertext);
+}
+
+// Вложения (в отличие от текста записи) хранятся сервером и локальным
+// кешем как ОДИН blob - без отдельного поля под nonce (ни в БД на
+// сервере, ни в локальном файле кеша). Поэтому nonce просто приклеивается
+// к шифртексту спереди (первые 24 байта) - симметричная пара
+// pack/unpack, используется и при загрузке вложения, и при его показе
+// (см. src/features/records/attachmentUpload.ts, useAttachmentFile.ts).
+const XCHACHA20_NONCE_LENGTH = 24;
+
+export function packEncryptedBlob(ciphertext: Uint8Array, nonce: Uint8Array): Uint8Array {
+  const combined = new Uint8Array(nonce.length + ciphertext.length);
+  combined.set(nonce, 0);
+  combined.set(ciphertext, nonce.length);
+  return combined;
+}
+
+export function unpackEncryptedBlob(blob: Uint8Array): { ciphertext: Uint8Array; nonce: Uint8Array } {
+  return { nonce: blob.slice(0, XCHACHA20_NONCE_LENGTH), ciphertext: blob.slice(XCHACHA20_NONCE_LENGTH) };
+}
+
+// Имя файла и MIME-тип личного вложения - тоже не должны быть видны
+// серверу (иначе получилась бы утечка метаданных о содержимом дневника
+// в обход всей остальной zero-knowledge схемы) - шифруются тем же
+// способом, что title/body записи (encryptText выше), просто с другим
+// JSON внутри.
+export function encryptFileMeta(
+  subkey: Uint8Array,
+  filename: string,
+  contentType: string,
+): { ciphertext: string; nonce: string } {
+  return encryptText(subkey, JSON.stringify({ filename, content_type: contentType }));
+}
+
+export function decryptFileMeta(
+  subkey: Uint8Array,
+  ciphertext: string,
+  nonce: string,
+): { filename: string; content_type: string } {
+  return JSON.parse(decryptText(subkey, ciphertext, nonce));
+}
