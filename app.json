@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "pro.ssod.biographia",
-      "versionCode": 5,
+      "versionCode": 7,
       "adaptiveIcon": {
         "backgroundColor": "#1e293b",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

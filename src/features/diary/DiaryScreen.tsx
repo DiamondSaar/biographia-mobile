@@ -16,7 +16,7 @@ import { UnlockScreen } from './UnlockScreen';
 export function DiaryScreen() {
   const theme = useTheme();
   const styles = createStyles(theme);
-  const { status, unlock, refreshStatus, canUseBiometrics, enableBiometricUnlock } = usePersonalKey();
+  const { status, errorMessage, unlock, refreshStatus, canUseBiometrics, enableBiometricUnlock } = usePersonalKey();
 
   // После разблокировки паролем (не биометрией - она уже включена, раз
   // сработала) - один раз предлагаем "запомнить через биометрию", чтобы
@@ -41,7 +41,12 @@ export function DiaryScreen() {
   if (status === 'error') {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>Не удалось проверить состояние шифрования.</Text>
+        <Text style={styles.errorText}>
+          Не удалось проверить состояние шифрования{errorMessage ? `: ${errorMessage}` : '.'}
+        </Text>
+        <Pressable style={styles.retryButton} onPress={refreshStatus}>
+          <Text style={styles.retryButtonText}>Повторить</Text>
+        </Pressable>
       </View>
     );
   }
@@ -104,6 +109,20 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     errorText: {
       color: theme.colors.danger,
       fontSize: 14,
+      textAlign: 'center',
+      marginBottom: theme.spacing.md,
+      paddingHorizontal: theme.spacing.lg,
+    },
+    retryButton: {
+      backgroundColor: theme.colors.accent,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.spacing.lg,
+      paddingVertical: theme.spacing.sm,
+    },
+    retryButtonText: {
+      color: '#fff',
+      fontSize: 14,
+      fontWeight: '600',
     },
     biometricPrompt: {
       backgroundColor: theme.colors.accentLight,

@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import { ApiError } from '@/src/api/client';
 import * as cryptoApi from '@/src/api/crypto';
 import { deriveSubkey } from '@/src/crypto/masterKey';
 import { bytesToBase64, base64ToBytes } from '@/src/crypto/masterKey';
@@ -21,6 +22,11 @@ type Status = 'loading' | 'not_configured' | 'locked' | 'unlocked' | 'error';
 
 type PersonalKeyState = {
   status: Status;
+  // Заполняется только при status==='error' - раньше ошибка проверки
+  // статуса шифрования просто проглатывалась (переход в 'error' без
+  // единой подробности), человек видел только неизменное "не удалось
+  // проверить состояние шифрования" без намёка на причину.
+  errorMessage: string | null;
   providers: cryptoApi.CryptoProvider[];
   masterKey: Uint8Array | null;
   subkey: Uint8Array | null;
@@ -48,6 +54,7 @@ function biometricStoreKey(username: string) {
 export function PersonalKeyProvider({ children }: { children: ReactNode }) {
   const { viewer } = useAuth();
   const [status, setStatus] = useState<Status>('loading');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [providers, setProviders] = useState<cryptoApi.CryptoProvider[]>([]);
   const [masterKey, setMasterKey] = useState<Uint8Array | null>(null);
   const [canUseBiometrics, setCanUseBiometrics] = useState(false);
@@ -57,10 +64,14 @@ export function PersonalKeyProvider({ children }: { children: ReactNode }) {
     cryptoApi
       .cryptoStatus()
       .then((data) => {
+        setErrorMessage(null);
         setProviders(data.providers || []);
         setStatus((current) => (current === 'unlocked' ? current : data.configured ? 'locked' : 'not_configured'));
       })
-      .catch(() => setStatus('error'));
+      .catch((err) => {
+        setErrorMessage(err instanceof ApiError ? err.message : 'Не удалось соединиться с сервером.');
+        setStatus('error');
+      });
   };
 
   useEffect(refreshStatus, []);
@@ -139,6 +150,7 @@ export function PersonalKeyProvider({ children }: { children: ReactNode }) {
     <PersonalKeyContext.Provider
       value={{
         status,
+        errorMessage,
         providers,
         masterKey,
         subkey,

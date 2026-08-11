@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { ApiError } from '@/src/api/client';
 import { entityLookup, type EntityResult } from '@/src/api/entities';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -26,17 +27,30 @@ export function EntityPicker({
   const [results, setResults] = useState<EntityResult[]>([]);
   const [showComposite, setShowComposite] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
+      setError(null);
       return;
     }
     setIsLoading(true);
     const handle = setTimeout(() => {
       entityLookup(query, !showComposite)
-        .then((data) => setResults(data.results || []))
-        .catch(() => setResults([]))
+        .then((data) => {
+          setResults(data.results || []);
+          setError(null);
+        })
+        .catch((err) => {
+          // Раньше ошибка молча проглатывалась - список результатов просто
+          // оставался пустым без единого объяснения, будто у Dominex нет
+          // ни одной подходящей сущности. Теперь видно, что именно не так
+          // (сеть, недоступность Dominex и т.п.), тем же принципом, что
+          // и describeUploadError в attachmentUpload.ts.
+          setResults([]);
+          setError(err instanceof ApiError ? err.message : 'Не удалось выполнить поиск.');
+        })
         .finally(() => setIsLoading(false));
     }, 250);
     return () => clearTimeout(handle);
@@ -80,6 +94,12 @@ export function EntityPicker({
       </Pressable>
 
       {isLoading && <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginTop: theme.spacing.sm }} />}
+
+      {!isLoading && error && <Text style={styles.errorText}>{error}</Text>}
+
+      {!isLoading && !error && query.trim() && results.length === 0 && (
+        <Text style={styles.emptyText}>Ничего не найдено.</Text>
+      )}
 
       {!isLoading && results.length > 0 && (
         <View style={styles.resultsBox}>
@@ -151,6 +171,16 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       fontSize: 12,
       color: theme.colors.textMuted,
       marginTop: 2,
+    },
+    errorText: {
+      marginTop: theme.spacing.sm,
+      fontSize: 13,
+      color: theme.colors.danger,
+    },
+    emptyText: {
+      marginTop: theme.spacing.sm,
+      fontSize: 13,
+      color: theme.colors.textMuted,
     },
     selectedCard: {
       flexDirection: 'row',
