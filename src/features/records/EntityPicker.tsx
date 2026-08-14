@@ -3,24 +3,28 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { Ionicons } from '@expo/vector-icons';
 
 import { ApiError } from '@/src/api/client';
-import { entityLookup, type EntityResult } from '@/src/api/entities';
+import { entityLookup, organizationLookup, type EntityResult } from '@/src/api/entities';
 import { useTheme } from '@/src/theme/useTheme';
 
-/**
- * Привязка записи к сущности Dominex (объекту, юрлицу) - порт
- * EntityPicker из веб-версии (frontend/src/components/AddRecordForm.jsx:
- * 10-91). По умолчанию показывает только родительские сущности
- * (parentsOnly=true, TZ 7.1/8 - "по умолчанию доступны только
- * родительские; тумблер «показать составные элементы»"), тумблер снимает
- * это ограничение.
- */
-export function EntityPicker({
-  value,
-  onChange,
-}: {
+type PickerProps = {
   value: EntityResult | null;
   onChange: (entity: EntityResult | null) => void;
-}) {
+  label: string;
+  attachedLabel: string;
+  search: (query: string, showComposite: boolean) => Promise<{ results: EntityResult[] }>;
+  showCompositeToggle: boolean;
+  describeResult: (r: EntityResult) => string;
+};
+
+/**
+ * Общий поиск-по-мере-набора против Dominex - порт DominexLookupPicker из
+ * веб-версии (frontend/src/components/AddRecordForm.jsx). Используется и
+ * "Привязать к сущности" (сущности+юрлица вперемешку), и отдельным полем
+ * "Юрлицо" (только организации, по запросу пользователя - раньше юрлицо
+ * можно было прикрепить только через общий пикер, что не позволяло
+ * одновременно указать и сущность, и юрлицо на одной записи).
+ */
+function DominexLookupPicker({ value, onChange, label, attachedLabel, search, showCompositeToggle, describeResult }: PickerProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const [query, setQuery] = useState('');
@@ -37,7 +41,7 @@ export function EntityPicker({
     }
     setIsLoading(true);
     const handle = setTimeout(() => {
-      entityLookup(query, !showComposite)
+      search(query, showComposite)
         .then((data) => {
           setResults(data.results || []);
           setError(null);
@@ -59,13 +63,11 @@ export function EntityPicker({
   if (value) {
     return (
       <View>
-        <Text style={styles.label}>Привязано к</Text>
+        <Text style={styles.label}>{attachedLabel}</Text>
         <View style={styles.selectedCard}>
           <View style={styles.selectedInfo}>
             <Text style={styles.selectedName}>{value.display_name}</Text>
-            <Text style={styles.selectedMeta}>
-              {value.kind === 'organization' ? 'Юрлицо' : value.template_name} · класс {value.access_class}
-            </Text>
+            <Text style={styles.selectedMeta}>{describeResult(value)}</Text>
           </View>
           <Pressable onPress={() => onChange(null)}>
             <Text style={styles.removeText}>Убрать</Text>
@@ -77,21 +79,23 @@ export function EntityPicker({
 
   return (
     <View>
-      <Text style={styles.label}>Привязать к сущности (необязательно)</Text>
+      <Text style={styles.label}>{label}</Text>
       <TextInput
         style={styles.input}
         placeholder="Начните вводить название..."
         value={query}
         onChangeText={setQuery}
       />
-      <Pressable style={styles.toggleRow} onPress={() => setShowComposite((v) => !v)}>
-        <Ionicons
-          name={showComposite ? 'checkbox-outline' : 'square-outline'}
-          size={18}
-          color={theme.colors.textMuted}
-        />
-        <Text style={styles.toggleText}>Показать составные элементы</Text>
-      </Pressable>
+      {showCompositeToggle && (
+        <Pressable style={styles.toggleRow} onPress={() => setShowComposite((v) => !v)}>
+          <Ionicons
+            name={showComposite ? 'checkbox-outline' : 'square-outline'}
+            size={18}
+            color={theme.colors.textMuted}
+          />
+          <Text style={styles.toggleText}>Показать составные элементы</Text>
+        </Pressable>
+      )}
 
       {isLoading && <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginTop: theme.spacing.sm }} />}
 
@@ -119,6 +123,34 @@ export function EntityPicker({
         </View>
       )}
     </View>
+  );
+}
+
+export function EntityPicker({ value, onChange }: { value: EntityResult | null; onChange: (entity: EntityResult | null) => void }) {
+  return (
+    <DominexLookupPicker
+      value={value}
+      onChange={onChange}
+      label="Привязать к сущности (необязательно)"
+      attachedLabel="Привязано к"
+      search={(q, showComposite) => entityLookup(q, !showComposite)}
+      showCompositeToggle
+      describeResult={(r) => (r.kind === 'organization' ? `Юрлицо · класс ${r.access_class}` : `${r.template_name} · класс ${r.access_class}`)}
+    />
+  );
+}
+
+export function OrgPicker({ value, onChange }: { value: EntityResult | null; onChange: (entity: EntityResult | null) => void }) {
+  return (
+    <DominexLookupPicker
+      value={value}
+      onChange={onChange}
+      label="Юрлицо (необязательно)"
+      attachedLabel="Юрлицо"
+      search={(q) => organizationLookup(q)}
+      showCompositeToggle={false}
+      describeResult={(r) => `Юрлицо${r.access_class ? ` · класс ${r.access_class}` : ''}`}
+    />
   );
 }
 

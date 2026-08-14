@@ -88,6 +88,7 @@ export type BiographyRecord = {
   access_level: string | null;
   entity_kind: 'entity' | 'organization' | null;
   entity_id: number | null;
+  related_organization_id: number | null;
   org_id: number | null;
   author_username: string;
   author_display_name: string | null;
@@ -119,5 +120,6 @@ export type CreateRecordPayload = {
   access_level?: string | null;
   entity_kind?: 'entity' | 'organization' | null;
   entity_id?: number | null;
+  related_organization_id?: number | null;
   org_id?: number | null;
 };

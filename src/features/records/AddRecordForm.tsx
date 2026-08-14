@@ -13,7 +13,7 @@ import { ACCESS_LEVEL_ORDER, accessRank, type AccessLevel } from '@/src/theme/co
 import { useTheme } from '@/src/theme/useTheme';
 import { AttachmentPicker } from './AttachmentPicker';
 import { uploadRecordAttachment } from './attachmentUpload';
-import { EntityPicker } from './EntityPicker';
+import { EntityPicker, OrgPicker } from './EntityPicker';
 import { recordTypeOptionsForZone, ZONE_OPTIONS } from './labels';
 
 // Одна ошибка вложения - в понятный текст: раньше вложения просто
@@ -66,6 +66,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
   const availableAccessLevels = ACCESS_LEVEL_ORDER.filter((level) => accessRank(level) <= maxAllowedRank);
   const [accessLevel, setAccessLevel] = useState<AccessLevel>('G');
   const [entity, setEntity] = useState<EntityResult | null>(null);
+  const [relatedOrganization, setRelatedOrganization] = useState<EntityResult | null>(null);
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -82,11 +83,13 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
     if (nextZone !== 'personal' && recordType === 'diary_entry') {
       setRecordType('note');
     }
-    // Привязка к сущности не показывается и не имеет смысла для личной
-    // зоны (см. EntityPicker ниже) - переключение в personal сбрасывает
-    // уже выбранную, чтобы не уйти в бэкенд с "мёртвым" полем.
+    // Привязка к сущности/юрлицу не показывается и не имеет смысла для
+    // личной зоны (см. EntityPicker/OrgPicker ниже) - переключение в
+    // personal сбрасывает уже выбранные, чтобы не уйти в бэкенд с
+    // "мёртвым" полем.
     if (nextZone === 'personal') {
       setEntity(null);
+      setRelatedOrganization(null);
     }
   };
 
@@ -130,6 +133,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
           org_id: zone === 'org' ? (viewer?.organization?.id ?? null) : null,
           entity_kind: entity?.kind ?? null,
           entity_id: entity?.id ?? null,
+          related_organization_id: relatedOrganization?.id ?? null,
         });
       }
 
@@ -231,6 +235,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
       )}
 
       {zone !== 'personal' && <EntityPicker value={entity} onChange={setEntity} />}
+      {zone !== 'personal' && <OrgPicker value={relatedOrganization} onChange={setRelatedOrganization} />}
 
       <Text style={styles.label}>Заголовок</Text>
       <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Заголовок записи" />

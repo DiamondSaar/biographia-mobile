@@ -19,3 +19,9 @@ export function entityLookup(query: string, parentsOnly: boolean): Promise<{ res
   const params = new URLSearchParams({ q: query, parents_only: String(parentsOnly) });
   return request(`/entities/lookup?${params.toString()}`);
 }
+
+/** Тот же /entities/lookup, но только организации - для отдельного поля "Юрлицо". */
+export function organizationLookup(query: string): Promise<{ results: EntityResult[] }> {
+  const params = new URLSearchParams({ q: query, kind: 'organization' });
+  return request(`/entities/lookup?${params.toString()}`);
+}

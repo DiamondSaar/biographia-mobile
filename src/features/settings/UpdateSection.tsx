@@ -1,10 +1,10 @@
 import Constants from 'expo-constants';
 import { Directory, File, Paths, DownloadTask } from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { fetchLatestBuildInfo, type LatestBuildInfo } from '@/src/api/appUpdate';
+import { installApk } from '@/src/utils/contentUri';
 import { useTheme } from '@/src/theme/useTheme';
 
 type State =
@@ -32,15 +32,14 @@ function updateDirectory(): Directory {
  * смысле expo-updates (тот механизм только для JS-бандла, не для
  * нативного apk, здесь не подключён и не подходит для этого сценария):
  * скачиваем файл сами (expo-file-system, с прогрессом - вложение почти
- * 120 МБ, может занять время на медленной сети), дальше отдаём его
- * системе через expo-sharing с MIME-типом apk - Android сам предложит
- * "Установка пакетов" в списке приложений для открытия, то же самое
- * системное окно подтверждения установки, что и при обычной установке
- * скачанного файла. Один лишний тап (выбрать "Установка пакетов" из
- * списка) - взамен не понадобилась ни новая нативная зависимость, ни
- * FileProvider в манифесте: expo-sharing уже умеет то и другое, тот же
- * механизм уже используется для "открыть вложение во внешнем
- * приложении" (AttachmentViewerModal.tsx).
+ * 120 МБ, может занять время на медленной сети), дальше открываем его
+ * через ContentUriModule (нативный код, см.
+ * android/app/src/main/java/pro/ssod/biographia/ContentUriModule.kt) -
+ * ACTION_VIEW с content:// URI и MIME-типом apk. Раньше здесь стоял
+ * expo-sharing, но тот открывает только ACTION_SEND ("поделиться"), а
+ * Android Package Installer реагирует ИМЕННО на ACTION_VIEW - в списке
+ * "поделиться" установщика в принципе не бывает, ни на одном устройстве
+ * (проверено - установщик не появлялся на реальном телефоне пользователя).
  */
 export function UpdateSection() {
   const theme = useTheme();
@@ -75,13 +74,7 @@ export function UpdateSection() {
       const downloaded = await task.downloadAsync();
       if (!downloaded) throw new Error('Загрузка не завершилась.');
 
-      const canShare = await Sharing.isAvailableAsync();
-      if (!canShare) throw new Error('Установка недоступна на этом устройстве.');
-
-      await Sharing.shareAsync(downloaded.uri, {
-        mimeType: 'application/vnd.android.package-archive',
-        dialogTitle: 'Установить обновление Biographia',
-      });
+      await installApk(downloaded.uri);
       setState({ kind: 'idle' });
     } catch (err) {
       setState({ kind: 'error', message: err instanceof Error ? err.message : 'неизвестная ошибка' });
