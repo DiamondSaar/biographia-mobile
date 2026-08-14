@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "pro.ssod.biographia",
-      "versionCode": 12,
+      "versionCode": 13,
       "permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"],
       "adaptiveIcon": {
         "backgroundColor": "#1e293b",

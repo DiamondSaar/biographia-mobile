@@ -93,6 +93,42 @@ export function AttachmentPicker({ files, onChange }: { files: PickedFile[]; onC
     ]);
   };
 
+  // Видео-заметка - тот же принцип "золотой середины", что и голосовая
+  // (VoiceRecorderOverlay.tsx): без приоритета на качество, короткий
+  // ролик, а не полноценная съёмка. Готовая запись системной камеры (не
+  // своя UI - expo-image-picker уже умеет запускать её сразу в режиме
+  // видео) идёт дальше через тот же uploadRecordAttachment, что и фото -
+  // шифрование для личной зоны уже зоно-агностично (работает с байтами
+  // любого файла, см. attachmentUpload.ts), отдельного кода не нужно.
+  // Лимит длительности - и вес файла держит в разумных рамках, и не
+  // даёт спутать "заметку" с полноценной съёмкой.
+  const recordVideo = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      showPermissionDeniedAlert('камере');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['videos'],
+      videoMaxDuration: 120,
+      // UIImagePickerControllerQualityType - только тип для TS, не
+      // реальный экспорт (нет .js с его значениями, только .d.ts) -
+      // enum.Medium на рантайме упал бы с "Cannot read property of
+      // undefined". 1 - его фактическое числовое значение (Medium).
+      // iOS only - на Android регулирует само приложение камеры.
+      videoQuality: 1,
+    });
+    if (result.canceled || !result.assets) return;
+    onChange([
+      ...files,
+      ...result.assets.map((asset, index) => ({
+        uri: asset.uri,
+        name: asset.fileName || `video-${Date.now()}-${index}.mp4`,
+        type: asset.mimeType || 'video/mp4',
+      })),
+    ]);
+  };
+
   const removeFile = (index: number) => {
     onChange(files.filter((_, i) => i !== index));
   };
@@ -120,6 +156,10 @@ export function AttachmentPicker({ files, onChange }: { files: PickedFile[]; onC
           <Pressable style={styles.attachButton} onPress={takePhoto}>
             <Ionicons name="camera-outline" size={16} color={theme.colors.textMuted} />
             <Text style={styles.attachButtonText}>Сделать фото</Text>
+          </Pressable>
+          <Pressable style={styles.attachButton} onPress={recordVideo}>
+            <Ionicons name="videocam-outline" size={16} color={theme.colors.textMuted} />
+            <Text style={styles.attachButtonText}>Записать видео</Text>
           </Pressable>
           <Pressable style={styles.attachButton} onPress={() => setIsRecording(true)}>
             <Ionicons name="mic-outline" size={16} color={theme.colors.textMuted} />

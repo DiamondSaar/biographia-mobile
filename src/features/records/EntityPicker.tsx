@@ -37,6 +37,13 @@ function DominexLookupPicker({ value, onChange, label, attachedLabel, search, sh
     if (!query.trim()) {
       setResults([]);
       setError(null);
+      // isLoading могло остаться true из предыдущего запуска: если человек
+      // успел стереть текст ДО того, как debounce ниже сработал, cleanup
+      // отменяет сам fetch (clearTimeout), но не отменяет уже случившийся
+      // setIsLoading(true) от прошлого рендера - без этой строки крутилка
+      // так и оставалась висеть вечно, даже когда поиск не идёт (баг,
+      // воспроизведённый пользователем на новом поле "Юрлицо").
+      setIsLoading(false);
       return;
     }
     setIsLoading(true);

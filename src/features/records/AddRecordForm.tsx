@@ -215,21 +215,29 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
         <>
           <Text style={styles.label}>Ранг доступа</Text>
           <View style={styles.zoneRow}>
-            {availableAccessLevels.map((level) => (
-              <Pressable
-                key={level}
-                onPress={() => setAccessLevel(level)}
-                style={[
-                  styles.accessOption,
-                  {
-                    borderColor: theme.accessLevelColors[level].border,
-                    backgroundColor:
-                      accessLevel === level ? theme.accessLevelColors[level].bg : theme.colors.backgroundCard,
-                  },
-                ]}>
-                <Text style={[styles.accessOptionText, { color: theme.accessLevelColors[level].text }]}>{level}</Text>
-              </Pressable>
-            ))}
+            {availableAccessLevels.map((level) => {
+              const isSelected = accessLevel === level;
+              // G/F бледно-серые в собственной палитре (та же, что в
+              // Dominex/вебе) - на бледном фоне выбранное/невыбранное
+              // состояние почти не отличалось. Теперь невыбранные ранги
+              // ВСЕГДА нейтрально-серые, а выбранный - залит своим ярким
+              // цветом, независимо от того, какой именно это ранг.
+              return (
+                <Pressable
+                  key={level}
+                  onPress={() => setAccessLevel(level)}
+                  style={[
+                    styles.accessOption,
+                    isSelected
+                      ? { borderColor: theme.accessLevelColors[level].border, backgroundColor: theme.accessLevelColors[level].border }
+                      : { borderColor: theme.colors.border, backgroundColor: theme.colors.backgroundCard },
+                  ]}>
+                  <Text style={[styles.accessOptionText, { color: isSelected ? '#fff' : theme.colors.textMuted }]}>
+                    {level}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         </>
       )}
