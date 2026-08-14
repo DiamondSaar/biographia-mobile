@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 
 import type { Attachment } from '@/src/api/types';
@@ -56,6 +57,7 @@ export function AttachmentViewerModal({
   const viewerKind = useMemo(() => pickViewerKind(contentType, attachment?.has_preview ?? false), [contentType, attachment]);
   const fetchKind = viewerKind === 'pdf' && attachment?.has_preview && isOfficeDocument(contentType) ? 'preview' : 'full';
   const { state, open, reset } = useAttachmentFile(attachment ?? ({ id: -1 } as Attachment), fetchKind);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (visible && attachment && viewerKind !== 'external') {
@@ -78,11 +80,49 @@ export function AttachmentViewerModal({
       await open();
       return;
     }
+    await handleShare();
+  };
+
+  // "Поделиться" - для пересылки по почте/печати доступно для ЛЮБОГО
+  // типа вложения (не только "external"), см. хедер модалки ниже. Файл к
+  // этому моменту уже расшифрован (для личной зоны) - handleShare ничего
+  // не знает про шифрование, работает с готовым локальным uri, как и
+  // сами просмотрщики (ImageViewer/VideoPlayer/...).
+  const handleShare = async () => {
+    if (state.status !== 'ready') return;
     const canShare = await Sharing.isAvailableAsync();
     if (canShare) {
       await Sharing.shareAsync(state.uri, { mimeType: contentType || undefined });
     }
   };
+
+  // Сохранение в галерею - только для фото/видео (это единственные типы,
+  // для которых у ОС вообще есть понятие "галерея" - MediaLibrary не
+  // делает ничего осмысленного с PDF/текстом/т.п., см. обсуждение с
+  // пользователем). Аудио и остальные файлы - через "Поделиться" выше
+  // (тоже решает исходную задачу "переслать по почте/распечатать", просто
+  // не даёт постоянной копии в галерее, которой для этих типов у ОС и
+  // не бывает).
+  const handleSaveToGallery = async () => {
+    if (state.status !== 'ready') return;
+    setIsSaving(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (!permission.granted) {
+        Alert.alert('Нет доступа', 'Приложению не разрешено сохранять файлы в галерею.');
+        return;
+      }
+      await MediaLibrary.saveToLibraryAsync(state.uri);
+      Alert.alert('Сохранено', 'Файл добавлен в галерею телефона.');
+    } catch (err) {
+      Alert.alert('Не удалось сохранить', err instanceof Error ? err.message : 'неизвестная ошибка');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const canSaveToGallery = (viewerKind === 'image' || viewerKind === 'video') && state.status === 'ready';
+  const canShareFromHeader = viewerKind !== 'external' && state.status === 'ready';
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
@@ -91,9 +131,25 @@ export function AttachmentViewerModal({
           <Text style={styles.title} numberOfLines={1}>
             {meta?.filename ?? attachment.filename ?? 'Вложение'}
           </Text>
-          <Pressable onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color={theme.colors.text} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            {canSaveToGallery && (
+              <Pressable onPress={handleSaveToGallery} style={styles.headerButton} disabled={isSaving}>
+                {isSaving ? (
+                  <ActivityIndicator size="small" color={theme.colors.text} />
+                ) : (
+                  <Ionicons name="download-outline" size={22} color={theme.colors.text} />
+                )}
+              </Pressable>
+            )}
+            {canShareFromHeader && (
+              <Pressable onPress={handleShare} style={styles.headerButton}>
+                <Ionicons name="share-outline" size={22} color={theme.colors.text} />
+              </Pressable>
+            )}
+            <Pressable onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color={theme.colors.text} />
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.body}>
@@ -146,6 +202,8 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       borderBottomColor: theme.colors.border,
     },
     title: { flex: 1, fontSize: 15, fontWeight: '600', color: theme.colors.text, marginRight: theme.spacing.md },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
+    headerButton: { padding: theme.spacing.xs },
     closeButton: { padding: theme.spacing.xs },
     body: { flex: 1 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg, gap: theme.spacing.md },

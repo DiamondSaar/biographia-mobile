@@ -12,8 +12,8 @@
     },
     "android": {
       "package": "pro.ssod.biographia",
-      "versionCode": 13,
-      "permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"],
+      "versionCode": 14,
+      "permissions": ["android.permission.REQUEST_INSTALL_PACKAGES", "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"],
       "adaptiveIcon": {
         "backgroundColor": "#1e293b",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -44,6 +44,13 @@
         "expo-audio",
         {
           "microphonePermission": "Приложению нужен доступ к микрофону, чтобы надиктовать голосовую заметку."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Приложению нужен доступ, чтобы сохранить файл в галерею телефона.",
+          "isAccessMediaLocationEnabled": false
         }
       ]
     ],
