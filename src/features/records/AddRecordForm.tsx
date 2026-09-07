@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ApiError } from '@/src/api/client';
 import type { PickedFile } from '@/src/api/attachments';
 import type { EntityResult } from '@/src/api/entities';
 import * as recordsApi from '@/src/api/records';
@@ -11,20 +10,17 @@ import { useAuth } from '@/src/context/AuthContext';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import { ACCESS_LEVEL_ORDER, accessRank, type AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
+import {
+  discardOutboxItem,
+  isNetworkError,
+  queueAttachmentsForExistingRecord,
+  queueNewRecord,
+  reserveOutboxItem,
+} from '@/src/offline/outbox';
 import { AttachmentPicker } from './AttachmentPicker';
-import { uploadRecordAttachment } from './attachmentUpload';
+import { prepareAttachmentForUpload, sendPreparedAttachment, deletePreparedFiles, type PreparedAttachment } from './attachmentUpload';
 import { EntityPicker, OrgPicker } from './EntityPicker';
 import { recordTypeOptionsForZone, ZONE_OPTIONS } from './labels';
-
-// Одна ошибка вложения - в понятный текст: раньше вложения просто
-// падали в общий bare catch без сообщения ("не всё прикрепилось" без
-// объяснения, почему) - теперь видно ЧТО именно пошло не так (лимит
-// размера, сеть, дневник заблокирован и т.п.), а не только сам факт.
-function describeUploadError(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
-  if (err instanceof Error) return err.message;
-  return 'неизвестная ошибка';
-}
 
 type AddRecordFormProps = {
   onCreated: () => void;
@@ -104,37 +100,73 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
     }
     setError(null);
     setIsSubmitting(true);
+
+    // Каталог для вложений резервируется СРАЗУ, ещё до попытки уйти в
+    // сеть - см. src/offline/outbox.ts. Если в итоге всё удалось отправить
+    // напрямую, каталог просто убирается (discardOutboxItem) в конце.
+    const { id: outboxId, dir: outboxDir } = reserveOutboxItem();
+
     try {
+      let prepared: PreparedAttachment[];
+      try {
+        prepared = await Promise.all(files.map((file) => prepareAttachmentForUpload(zone, file, subkey, outboxDir)));
+      } catch (err) {
+        discardOutboxItem(outboxId);
+        throw err;
+      }
+
+      const payload =
+        zone === 'personal'
+          ? (() => {
+              // Открытый текст {title, body} никогда не покидает устройство -
+              // шифруется в один AEAD-блок (см. encryptText в
+              // src/crypto/masterKey.ts) тем же способом, что и на веб-версии;
+              // сервер получает только шифртекст. subkey гарантированно не
+              // null здесь - проверка isPersonalLocked выше уже отсекла случай
+              // "дневник заблокирован".
+              const { ciphertext, nonce } = encryptText(
+                subkey!,
+                JSON.stringify({ title: title.trim() || null, body: body.trim() || null }),
+              );
+              return { zone, record_type: recordType, encrypted_content: ciphertext, nonce };
+            })()
+          : {
+              zone,
+              record_type: recordType,
+              title: title.trim() || null,
+              body: body.trim() || null,
+              access_level: accessLevel,
+              // org-зона требует org_id (app/records/routes.py:
+              // org_id_required_for_org_zone) - у обычного пользователя это
+              // всегда его собственная организация, отдельного пикера не
+              // нужно (в отличие от владельца/ответственного, тех можно
+              // сменить только на веб-версии).
+              org_id: zone === 'org' ? (viewer?.organization?.id ?? null) : null,
+              entity_kind: entity?.kind ?? null,
+              entity_id: entity?.id ?? null,
+              related_organization_id: relatedOrganization?.id ?? null,
+            };
+
       let record;
-      if (zone === 'personal') {
-        // Открытый текст {title, body} никогда не покидает устройство -
-        // шифруется в один AEAD-блок (см. encryptText в
-        // src/crypto/masterKey.ts) тем же способом, что и на веб-версии;
-        // сервер получает только шифртекст. subkey гарантированно не
-        // null здесь - проверка isPersonalLocked выше уже отсекла случай
-        // "дневник заблокирован".
-        const { ciphertext, nonce } = encryptText(
-          subkey!,
-          JSON.stringify({ title: title.trim() || null, body: body.trim() || null }),
+      try {
+        record = await recordsApi.createRecord(payload);
+      } catch (err) {
+        if (!isNetworkError(err)) {
+          discardOutboxItem(outboxId);
+          throw err;
+        }
+        // Запрос вообще не дошёл до сервера (нет сети) - вся запись, вместе
+        // с уже подготовленными (миниатюра/шифрование) вложениями, остаётся
+        // на телефоне и уйдёт сама, как только появится связь (см.
+        // processOutbox в app/_layout.tsx и RecordsFeed.tsx). Раньше в этом
+        // месте запись и вложения терялись безвозвратно.
+        queueNewRecord(outboxId, payload, prepared);
+        onCreated();
+        Alert.alert(
+          'Нет соединения',
+          'Запись сохранена на телефоне и отправится автоматически, как только появится связь.',
         );
-        record = await recordsApi.createRecord({ zone, record_type: recordType, encrypted_content: ciphertext, nonce });
-      } else {
-        record = await recordsApi.createRecord({
-          zone,
-          record_type: recordType,
-          title: title.trim() || null,
-          body: body.trim() || null,
-          access_level: accessLevel,
-          // org-зона требует org_id (app/records/routes.py:
-          // org_id_required_for_org_zone) - у обычного пользователя это
-          // всегда его собственная организация, отдельного пикера не
-          // нужно (в отличие от владельца/ответственного, тех можно
-          // сменить только на веб-версии).
-          org_id: zone === 'org' ? (viewer?.organization?.id ?? null) : null,
-          entity_kind: entity?.kind ?? null,
-          entity_id: entity?.id ?? null,
-          related_organization_id: relatedOrganization?.id ?? null,
-        });
+        return;
       }
 
       // Запись уже сохранена на сервере - закрываем форму независимо от
@@ -145,21 +177,33 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
       // дубли. Здесь тот же урок учтён сразу, для обеих зон.
       onCreated();
 
-      if (files.length > 0) {
-        const failed: string[] = [];
-        for (const file of files) {
+      if (prepared.length > 0) {
+        const stillFailed: PreparedAttachment[] = [];
+        for (const p of prepared) {
           try {
-            await uploadRecordAttachment(record.id, zone, file, subkey);
-          } catch (err) {
-            failed.push(`${file.name} (${describeUploadError(err)})`);
+            await sendPreparedAttachment(record.id, p);
+            deletePreparedFiles(p);
+          } catch {
+            stillFailed.push(p);
           }
         }
-        if (failed.length > 0) {
-          // setError() здесь не поможет - форма уже закрылась строчкой
-          // выше (onCreated() обычно прячет её в родителе), обычный
-          // Alert - единственный способ вообще показать эту ошибку.
-          Alert.alert('Не всё прикрепилось', `Запись сохранена, но не удалось прикрепить:\n${failed.join('\n')}`);
+        if (stillFailed.length > 0) {
+          // Файлы уже подготовлены (миниатюра/шифрование сделаны) и лежат
+          // в постоянном каталоге - не потеряются, просто уйдут позже
+          // (processOutbox). Раньше в этом месте они терялись насовсем -
+          // Alert сообщал об ошибке, но ничего не сохранял на повтор.
+          queueAttachmentsForExistingRecord(outboxId, record.id, payload, stillFailed);
+          Alert.alert(
+            'Сохранено, довышлется позже',
+            `Файлы сохранены на телефоне и загрузятся автоматически, как только появится связь:\n${stillFailed
+              .map((p) => p.file.name)
+              .join('\n')}`,
+          );
+        } else {
+          discardOutboxItem(outboxId);
         }
+      } else {
+        discardOutboxItem(outboxId);
       }
     } catch {
       setError('Не удалось сохранить запись. Проверьте соединение.');

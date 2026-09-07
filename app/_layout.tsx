@@ -17,6 +17,7 @@ import { AuthProvider, useAuth } from '@/src/context/AuthContext';
 import { DiaryViewModeProvider } from '@/src/context/DiaryViewModeContext';
 import { PersonalKeyProvider } from '@/src/context/PersonalKeyContext';
 import { ThemeModeProvider, useThemeMode } from '@/src/context/ThemeModeContext';
+import { processOutbox } from '@/src/offline/outbox';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -85,6 +86,17 @@ function RootNavigator() {
       SplashScreen.hideAsync();
     }
   }, [isLoading]);
+
+  useEffect(() => {
+    // Попытка отправить всё, что накопилось в офлайн-очереди (см.
+    // src/offline/outbox.ts), при каждом старте приложения с активной
+    // сессией - плюс на pull-to-refresh (RecordsFeed.tsx). Без live-
+    // детектора соединения (не тащим новую зависимость), но "открыли
+    // приложение" на практике достаточно частый повод.
+    if (viewer) {
+      processOutbox();
+    }
+  }, [viewer]);
 
   if (isLoading) {
     return null; // заставка ещё на экране, здесь рисовать нечего

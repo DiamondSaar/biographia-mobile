@@ -12,18 +12,13 @@ import { useAuth } from '@/src/context/AuthContext';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import type { Attachment, BiographyRecord } from '@/src/api/types';
 import { usePersonalContent } from '@/src/features/diary/usePersonalContent';
+import { discardOutboxItem, queueAttachmentsForExistingRecord, reserveOutboxItem } from '@/src/offline/outbox';
 import { AttachmentPicker } from './AttachmentPicker';
 import { AttachmentRow } from './AttachmentRow';
 import { AttachmentViewerModal } from './AttachmentViewerModal';
-import { uploadRecordAttachment } from './attachmentUpload';
+import { prepareAttachmentForUpload, sendPreparedAttachment, deletePreparedFiles, type PreparedAttachment } from './attachmentUpload';
 import { RECORD_TYPE_LABELS, ZONE_LABELS } from './labels';
 import { formatDateTime } from '@/src/utils/dates';
-
-function describeUploadError(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
-  if (err instanceof Error) return err.message;
-  return 'неизвестная ошибка';
-}
 
 /**
  * Просмотр записи + правка на месте. Кто может редактировать сразу, а
@@ -118,18 +113,35 @@ export function RecordDetailScreen({ id }: { id: number }) {
         // текста (и только по прямой правке - у предложений вложений
         // вообще нет, см. AttachmentPicker ниже, скрыт для !canEditDirectly).
         if (newFiles.length > 0) {
-          const failed: string[] = [];
-          for (const file of newFiles) {
+          // Та же логика "подготовить локально, отправить, при неудаче
+          // отложить на потом", что и при создании записи - см.
+          // AddRecordForm.tsx и src/offline/outbox.ts. Раньше неудачно
+          // загрузившийся файл терялся насовсем (только Alert об ошибке).
+          const { id: outboxId, dir: outboxDir } = reserveOutboxItem();
+          const prepared = await Promise.all(
+            newFiles.map((file) => prepareAttachmentForUpload(record.zone, file, subkey, outboxDir)),
+          );
+          const stillFailed: PreparedAttachment[] = [];
+          for (const p of prepared) {
             try {
-              await uploadRecordAttachment(record.id, record.zone, file, subkey);
-            } catch (err) {
-              failed.push(`${file.name} (${describeUploadError(err)})`);
+              await sendPreparedAttachment(record.id, p);
+              deletePreparedFiles(p);
+            } catch {
+              stillFailed.push(p);
             }
           }
           setNewFiles([]);
           await load(); // подтягивает свежий список вложений
-          if (failed.length > 0) {
-            Alert.alert('Не всё прикрепилось', failed.join('\n'));
+          if (stillFailed.length > 0) {
+            queueAttachmentsForExistingRecord(outboxId, record.id, { zone: record.zone, record_type: record.record_type }, stillFailed);
+            Alert.alert(
+              'Сохранено, довышлется позже',
+              `Файлы сохранены на телефоне и загрузятся автоматически, как только появится связь:\n${stillFailed
+                .map((p) => p.file.name)
+                .join('\n')}`,
+            );
+          } else {
+            discardOutboxItem(outboxId);
           }
         }
       }

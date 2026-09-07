@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import { useTheme } from '@/src/theme/useTheme';
+import { OutboxBanner } from '@/src/offline/OutboxBanner';
 import { DiaryPersonalFeed } from './DiaryPersonalFeed';
 import { SetupScreen } from './SetupScreen';
 import { UnlockScreen } from './UnlockScreen';
@@ -89,6 +90,7 @@ export function DiaryScreen() {
           </View>
         </View>
       )}
+      <OutboxBanner />
       <DiaryPersonalFeed />
     </View>
   );

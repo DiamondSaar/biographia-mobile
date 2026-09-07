@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as MediaLibrary from 'expo-media-library';
+import { Directory, File, Paths } from 'expo-file-system';
+// expo-media-library's default export (SDK 57) - новый class-based API,
+// requestPermissionsAsync/saveToLibraryAsync там нет вообще - при вызове
+// падает с "Method saveToLibraryAsync ... is deprecated" (проверено на
+// реальном телефоне). /legacy - тот же функциональный API, что и в
+// остальном коде этого файла, просто по другому пути импорта.
+import * as MediaLibrary from 'expo-media-library/legacy';
 import * as Sharing from 'expo-sharing';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Attachment } from '@/src/api/types';
 import { isOfficeDocument } from '@/src/utils/files';
@@ -33,6 +40,32 @@ function pickViewerKind(contentType: string, hasPreview: boolean): Kind {
   return 'external';
 }
 
+// MediaLibrary (Android) требует, чтобы у файла в имени БЫЛО расширение -
+// без него saveToLibraryAsync падает с "Could not get the file's
+// extension." Временные файлы приложения (кеш вложений/расшифровка, см.
+// fileCache.ts/attachmentFile.ts) называются просто "<id>-<kind>", без
+// расширения - поэтому перед сохранением файл копируется под именем с
+// правильным расширением (см. handleSaveToGallery ниже). Сначала пробуем
+// взять расширение из настоящего имени файла (оно почти всегда есть -
+// пришло от пикера/камеры при загрузке), и только если его нет - гадаем
+// по MIME-типу (только image/video - ровно то, что вообще может попасть
+// в "Сохранить в галерею", см. canSaveToGallery).
+function guessSaveExtension(filename: string | null | undefined, contentType: string): string {
+  const fromName = filename?.match(/\.([a-zA-Z0-9]{2,5})$/)?.[1];
+  if (fromName) return fromName.toLowerCase();
+  const byMimeType: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/heic': 'heic',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/3gpp': '3gp',
+  };
+  return byMimeType[contentType] ?? (contentType.startsWith('video/') ? 'mp4' : 'jpg');
+}
+
 /**
  * Выбирает нужный просмотрщик по MIME-типу расшифрованных/полученных
  * метаданных (useAttachmentMeta.ts) и управляет жизненным циклом
@@ -58,6 +91,7 @@ export function AttachmentViewerModal({
   const fetchKind = viewerKind === 'pdf' && attachment?.has_preview && isOfficeDocument(contentType) ? 'preview' : 'full';
   const { state, open, reset } = useAttachmentFile(attachment ?? ({ id: -1 } as Attachment), fetchKind);
   const [isSaving, setIsSaving] = useState(false);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (visible && attachment && viewerKind !== 'external') {
@@ -112,8 +146,19 @@ export function AttachmentViewerModal({
         Alert.alert('Нет доступа', 'Приложению не разрешено сохранять файлы в галерею.');
         return;
       }
-      await MediaLibrary.saveToLibraryAsync(state.uri);
-      Alert.alert('Сохранено', 'Файл добавлен в галерею телефона.');
+      // См. комментарий у guessSaveExtension выше - без расширения в
+      // имени файла MediaLibrary падает с непонятной пользователю ошибкой.
+      const ext = guessSaveExtension(meta?.filename, contentType);
+      const dir = new Directory(Paths.cache, 'biographia-save-tmp');
+      if (!dir.exists) dir.create({ intermediates: true });
+      const named = new File(dir, `save-${attachment.id}-${Date.now()}.${ext}`);
+      named.write(new File(state.uri).bytesSync());
+      try {
+        await MediaLibrary.saveToLibraryAsync(named.uri);
+        Alert.alert('Сохранено', 'Файл добавлен в галерею телефона.');
+      } finally {
+        if (named.exists) named.delete();
+      }
     } catch (err) {
       Alert.alert('Не удалось сохранить', err instanceof Error ? err.message : 'неизвестная ошибка');
     } finally {
@@ -122,7 +167,7 @@ export function AttachmentViewerModal({
   };
 
   const canSaveToGallery = (viewerKind === 'image' || viewerKind === 'video') && state.status === 'ready';
-  const canShareFromHeader = viewerKind !== 'external' && state.status === 'ready';
+  const canShare = viewerKind !== 'external' && state.status === 'ready';
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={false}>
@@ -131,25 +176,9 @@ export function AttachmentViewerModal({
           <Text style={styles.title} numberOfLines={1}>
             {meta?.filename ?? attachment.filename ?? 'Вложение'}
           </Text>
-          <View style={styles.headerActions}>
-            {canSaveToGallery && (
-              <Pressable onPress={handleSaveToGallery} style={styles.headerButton} disabled={isSaving}>
-                {isSaving ? (
-                  <ActivityIndicator size="small" color={theme.colors.text} />
-                ) : (
-                  <Ionicons name="download-outline" size={22} color={theme.colors.text} />
-                )}
-              </Pressable>
-            )}
-            {canShareFromHeader && (
-              <Pressable onPress={handleShare} style={styles.headerButton}>
-                <Ionicons name="share-outline" size={22} color={theme.colors.text} />
-              </Pressable>
-            )}
-            <Pressable onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color={theme.colors.text} />
-            </Pressable>
-          </View>
+          <Pressable onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color={theme.colors.text} />
+          </Pressable>
         </View>
 
         <View style={styles.body}>
@@ -185,6 +214,31 @@ export function AttachmentViewerModal({
             <TextViewer uri={state.uri} />
           )}
         </View>
+
+        {(canSaveToGallery || canShare) && (
+          // Внизу, не в шапке - там кнопки перекрывались с системной
+          // информацией в верхнем углу экрана (см. запрос пользователя).
+          // paddingBottom учитывает нижнюю safe area (жестовая навигация/
+          // "чёлка" снизу на части устройств).
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + theme.spacing.sm }]}>
+            {canSaveToGallery && (
+              <Pressable onPress={handleSaveToGallery} style={styles.bottomButton} disabled={isSaving}>
+                {isSaving ? (
+                  <ActivityIndicator size="small" color={theme.colors.text} />
+                ) : (
+                  <Ionicons name="download-outline" size={20} color={theme.colors.text} />
+                )}
+                <Text style={styles.bottomButtonText}>Сохранить в галерею</Text>
+              </Pressable>
+            )}
+            {canShare && (
+              <Pressable onPress={handleShare} style={styles.bottomButton}>
+                <Ionicons name="share-outline" size={20} color={theme.colors.text} />
+                <Text style={styles.bottomButtonText}>Поделиться</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -202,8 +256,6 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       borderBottomColor: theme.colors.border,
     },
     title: { flex: 1, fontSize: 15, fontWeight: '600', color: theme.colors.text, marginRight: theme.spacing.md },
-    headerActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
-    headerButton: { padding: theme.spacing.xs },
     closeButton: { padding: theme.spacing.xs },
     body: { flex: 1 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg, gap: theme.spacing.md },
@@ -215,5 +267,23 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       paddingVertical: theme.spacing.sm,
     },
     externalButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    bottomBar: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: theme.spacing.lg,
+      paddingTop: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+      backgroundColor: theme.colors.background,
+    },
+    bottomButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.xs,
+      paddingVertical: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.md,
+    },
+    bottomButtonText: { fontSize: 13, color: theme.colors.text, fontWeight: '500' },
   });
 }
