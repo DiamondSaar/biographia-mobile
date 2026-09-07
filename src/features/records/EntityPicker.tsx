@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { Ionicons } from '@expo/vector-icons';
 
 import { ApiError } from '@/src/api/client';
-import { entityLookup, organizationLookup, type EntityResult } from '@/src/api/entities';
+import { entityLookup, equipmentLookup, organizationLookup, type EntityResult } from '@/src/api/entities';
 import { useTheme } from '@/src/theme/useTheme';
 
 type PickerProps = {
@@ -157,6 +157,31 @@ export function OrgPicker({ value, onChange }: { value: EntityResult | null; onC
       search={(q) => organizationLookup(q)}
       showCompositeToggle={false}
       describeResult={(r) => `Юрлицо${r.access_class ? ` · класс ${r.access_class}` : ''}`}
+    />
+  );
+}
+
+// Только оборудование (entity_kind="entity") - для фильтра поиска Вики
+// (RecordsFeed.tsx). В отличие от EntityPicker выше, юрлица среди
+// результатов не нужны - там отдельное поле (OrgPicker).
+export function EquipmentPicker({
+  value,
+  onChange,
+  label = 'Оборудование',
+}: {
+  value: EntityResult | null;
+  onChange: (entity: EntityResult | null) => void;
+  label?: string;
+}) {
+  return (
+    <DominexLookupPicker
+      value={value}
+      onChange={onChange}
+      label={label}
+      attachedLabel={label}
+      search={(q, showComposite) => equipmentLookup(q, !showComposite)}
+      showCompositeToggle
+      describeResult={(r) => `${r.template_name} · класс ${r.access_class}`}
     />
   );
 }

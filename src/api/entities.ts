@@ -25,3 +25,27 @@ export function organizationLookup(query: string): Promise<{ results: EntityResu
   const params = new URLSearchParams({ q: query, kind: 'organization' });
   return request(`/entities/lookup?${params.toString()}`);
 }
+
+/** Тот же /entities/lookup, но только оборудование (entity_kind="entity") - для фильтра поиска Вики. */
+export function equipmentLookup(query: string, parentsOnly: boolean): Promise<{ results: EntityResult[] }> {
+  const params = new URLSearchParams({ q: query, parents_only: String(parentsOnly), kind: 'entity' });
+  return request(`/entities/lookup?${params.toString()}`);
+}
+
+/**
+ * Поиск по пользователям Dominex (не entities/organizations) - для
+ * фильтра "Автор" в поиске Вики. Проксирует GET /users/lookup
+ * (app/records/routes.py::users_lookup -> dominex_client.search_users) -
+ * тот же контракт, что уже использует веб-версия (UserPicker.jsx), на
+ * мобильном раньше не было ни одного вызывающего кода.
+ */
+export type UserResult = {
+  username: string;
+  display_name: string | null;
+  organization: string | null;
+};
+
+export function userLookup(query: string): Promise<{ results: UserResult[] }> {
+  const params = new URLSearchParams({ q: query });
+  return request(`/users/lookup?${params.toString()}`);
+}

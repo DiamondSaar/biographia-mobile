@@ -11,10 +11,28 @@ import type { BiographyRecord, CreateRecordPayload } from './types';
 
 type RecordsListResponse = { results: BiographyRecord[] };
 
+// Поиск/фильтр Вики (по запросу пользователя - после подключения истории
+// взаимодействий как источника записей их станет много, простая лента
+// перестаёт быть эффективной) - все поля необязательны, комбинируются.
+// entityId - "оборудование" (Dominex-сущность, entity_kind="entity"),
+// author - username. Тот же контракт, что и веб-версия (frontend/src/
+// api.js::recentRecords).
+export type WikiFilters = {
+  q?: string;
+  recordType?: string;
+  entityId?: number;
+  author?: string;
+};
+
 // "Вики" - общая лента последних записей (открытая зона + всё, что видно
 // текущему пользователю). См. GET /records/recent.
-export function fetchRecentRecords(limit = 10): Promise<RecordsListResponse> {
-  return request(`/records/recent?limit=${limit}`);
+export function fetchRecentRecords(limit = 10, filters: WikiFilters = {}): Promise<RecordsListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (filters.q) params.set('q', filters.q);
+  if (filters.recordType) params.set('record_type', filters.recordType);
+  if (filters.entityId) params.set('entity_id', String(filters.entityId));
+  if (filters.author) params.set('author', filters.author);
+  return request(`/records/recent?${params.toString()}`);
 }
 
 // Личный кабинет - записи, где текущий пользователь автор или владелец.
