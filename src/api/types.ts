@@ -88,7 +88,12 @@ export type BiographyRecord = {
   access_level: string | null;
   entity_kind: 'entity' | 'organization' | null;
   entity_id: number | null;
+  // Резолвится бэкендом через Dominex, только когда entity_id задан -
+  // может отсутствовать (Dominex недоступен/сущность удалена), тогда
+  // показываем "#id" как раньше (см. RecordCard.tsx).
+  entity_display_name?: string | null;
   related_organization_id: number | null;
+  related_organization_display_name?: string | null;
   org_id: number | null;
   author_username: string;
   author_display_name: string | null;

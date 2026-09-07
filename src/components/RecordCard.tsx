@@ -77,6 +77,23 @@ export function RecordCard({ record }: { record: BiographyRecord }) {
         <Text style={styles.metaText}>{RECORD_TYPE_LABELS[record.record_type]}</Text>
       </View>
 
+      {(record.entity_id != null || record.related_organization_id != null) && (
+        <View style={styles.bindingsBlock}>
+          {record.entity_id != null && (
+            <Text style={styles.metaText}>
+              Привязано к:{' '}
+              {record.entity_display_name ||
+                `${record.entity_kind === 'organization' ? 'юрлицу' : 'объекту'} #${record.entity_id}`}
+            </Text>
+          )}
+          {record.related_organization_id != null && (
+            <Text style={styles.metaText}>
+              Юрлицо: {record.related_organization_display_name || `юрлицу #${record.related_organization_id}`}
+            </Text>
+          )}
+        </View>
+      )}
+
       <Text style={styles.author}>
         {record.author_display_name || record.author_username} · {formatDateTime(record.created_at)}
       </Text>
@@ -135,6 +152,10 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       fontSize: 12,
       color: theme.colors.textMuted,
       marginHorizontal: theme.spacing.xs,
+    },
+    bindingsBlock: {
+      marginTop: theme.spacing.xs,
+      gap: 2,
     },
     errorInline: {
       fontSize: 13,
