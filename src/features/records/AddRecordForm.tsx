@@ -30,6 +30,11 @@ type AddRecordFormProps = {
   // показывается, зона всегда та, что передана. Та же идея, что
   // fixedZone в веб-версии (frontend/src/components/AddRecordForm.jsx).
   fixedZone?: Zone;
+  // Задаётся при открытии со страницы объекта (src/features/entities/
+  // EntityScreen.tsx, кнопка "Прикрепить запись") - привязка к сущности
+  // уже известна и не редактируется, EntityPicker вообще не показывается.
+  // Та же идея, что fixedEntity в веб-версии (EntityPage.jsx).
+  fixedEntity?: EntityResult;
 };
 
 /**
@@ -38,7 +43,7 @@ type AddRecordFormProps = {
  * Личная зона теперь поддержана - шифрование на устройстве через
  * usePersonalKey().subkey, см. handleSubmit ниже.
  */
-export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormProps) {
+export function AddRecordForm({ onCreated, onCancel, fixedZone, fixedEntity }: AddRecordFormProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const { status: diaryStatus, subkey } = usePersonalKey();
@@ -61,7 +66,7 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
   const maxAllowedRank = accessRank(viewer?.access_class);
   const availableAccessLevels = ACCESS_LEVEL_ORDER.filter((level) => accessRank(level) <= maxAllowedRank);
   const [accessLevel, setAccessLevel] = useState<AccessLevel>('G');
-  const [entity, setEntity] = useState<EntityResult | null>(null);
+  const [entity, setEntity] = useState<EntityResult | null>(fixedEntity ?? null);
   const [relatedOrganization, setRelatedOrganization] = useState<EntityResult | null>(null);
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -286,7 +291,17 @@ export function AddRecordForm({ onCreated, onCancel, fixedZone }: AddRecordFormP
         </>
       )}
 
-      {zone !== 'personal' && <EntityPicker value={entity} onChange={setEntity} />}
+      {zone !== 'personal' &&
+        (fixedEntity ? (
+          <>
+            <Text style={styles.label}>Привязано к</Text>
+            <View style={styles.fixedEntityBox}>
+              <Text style={styles.fixedEntityText}>{fixedEntity.display_name}</Text>
+            </View>
+          </>
+        ) : (
+          <EntityPicker value={entity} onChange={setEntity} />
+        ))}
       {zone !== 'personal' && <OrgPicker value={relatedOrganization} onChange={setRelatedOrganization} />}
 
       <Text style={styles.label}>Заголовок</Text>
@@ -408,6 +423,18 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: '#fff',
       fontSize: 14,
       fontWeight: '600',
+    },
+    fixedEntityBox: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: theme.spacing.sm,
+    },
+    fixedEntityText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
     },
     errorBox: {
       backgroundColor: theme.colors.warnBg,

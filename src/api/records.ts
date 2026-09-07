@@ -55,6 +55,14 @@ export function fetchRecordDetail(id: number): Promise<BiographyRecord> {
   return request(`/records/${id}`);
 }
 
+// Лента записей, прикреплённых к конкретному объекту/юрлицу Dominex -
+// страница объекта (src/features/entities/EntityScreen.tsx). См. GET
+// /entities/<kind>/<id>/records (app/records/routes.py::entity_feed) - тот
+// же контракт, что у веб-версии (frontend/src/pages/EntityPage.jsx).
+export function fetchEntityFeed(kind: 'entity' | 'organization', id: number): Promise<RecordsListResponse> {
+  return request(`/entities/${kind}/${id}/records`);
+}
+
 // Создание новой записи - см. POST /records. Работает во всех трёх зонах
 // (open/org/personal), см. CreateRecordPayload в api/types.ts - но вложения
 // для личной зоны бэкенд пока не поддерживает (см. README.md проекта).

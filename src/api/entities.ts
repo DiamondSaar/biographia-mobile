@@ -49,3 +49,23 @@ export function userLookup(query: string): Promise<{ results: UserResult[] }> {
   const params = new URLSearchParams({ q: query });
   return request(`/users/lookup?${params.toString()}`);
 }
+
+/**
+ * Карточка объекта/юрлица целиком (не только для пикера) - тонкий прокси к
+ * собственной карточке сущности в Dominex, GET /entities/<kind>/<id>
+ * (app/records/routes.py::entity_card). Тот же контракт, что у веб-версии
+ * (frontend/src/pages/EntityPage.jsx) - используется экраном "страница
+ * объекта" (src/features/entities/EntityScreen.tsx), которого на мобильном
+ * раньше не было вовсе (только поиск для привязки, EntityResult выше).
+ */
+export type EntityCard = {
+  display_name: string;
+  template_name: string | null;
+  access_class: string | null;
+  parent?: { id: number; display_name: string } | null;
+  children?: { id: number; display_name: string }[];
+};
+
+export function entityCard(kind: 'entity' | 'organization', id: number): Promise<EntityCard> {
+  return request(`/entities/${kind}/${id}`);
+}

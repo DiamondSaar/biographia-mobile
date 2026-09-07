@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
@@ -22,9 +23,19 @@ import { formatDateTime } from '@/src/utils/dates';
  * frontend/src/styles/main.css) - тот же ранг должен выглядеть одинаково
  * во всей экосистеме.
  */
-export function RecordCard({ record }: { record: BiographyRecord }) {
+export function RecordCard({
+  record,
+  showEntityLink = true,
+}: {
+  record: BiographyRecord;
+  // false на самой странице объекта (src/features/entities/EntityScreen.tsx) -
+  // там ссылка вела бы саму на себя, как и showEntityLink на веб-версии
+  // (frontend/src/pages/EntityPage.jsx: <RecordCard showEntityLink={false} />).
+  showEntityLink?: boolean;
+}) {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const router = useRouter();
   const { content, failed, locked } = usePersonalContent(record);
 
   const accessLevel = record.access_level as AccessLevel | null;
@@ -77,19 +88,40 @@ export function RecordCard({ record }: { record: BiographyRecord }) {
         <Text style={styles.metaText}>{RECORD_TYPE_LABELS[record.record_type]}</Text>
       </View>
 
-      {(record.entity_id != null || record.related_organization_id != null) && (
+      {showEntityLink && (record.entity_id != null || record.related_organization_id != null) && (
         <View style={styles.bindingsBlock}>
           {record.entity_id != null && (
-            <Text style={styles.metaText}>
-              Привязано к:{' '}
-              {record.entity_display_name ||
-                `${record.entity_kind === 'organization' ? 'юрлицу' : 'объекту'} #${record.entity_id}`}
-            </Text>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/entity/[kind]/[id]',
+                  params: { kind: record.entity_kind!, id: String(record.entity_id) },
+                })
+              }>
+              <Text style={styles.metaText}>
+                Привязано к:{' '}
+                <Text style={styles.metaLink}>
+                  {record.entity_display_name ||
+                    `${record.entity_kind === 'organization' ? 'юрлицу' : 'объекту'} #${record.entity_id}`}
+                </Text>
+              </Text>
+            </Pressable>
           )}
           {record.related_organization_id != null && (
-            <Text style={styles.metaText}>
-              Юрлицо: {record.related_organization_display_name || `юрлицу #${record.related_organization_id}`}
-            </Text>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/entity/[kind]/[id]',
+                  params: { kind: 'organization', id: String(record.related_organization_id) },
+                })
+              }>
+              <Text style={styles.metaText}>
+                Юрлицо:{' '}
+                <Text style={styles.metaLink}>
+                  {record.related_organization_display_name || `юрлицу #${record.related_organization_id}`}
+                </Text>
+              </Text>
+            </Pressable>
           )}
         </View>
       )}
@@ -156,6 +188,10 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     bindingsBlock: {
       marginTop: theme.spacing.xs,
       gap: 2,
+    },
+    metaLink: {
+      color: theme.colors.accent,
+      fontWeight: '600',
     },
     errorInline: {
       fontSize: 13,

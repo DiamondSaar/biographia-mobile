@@ -117,6 +117,7 @@ function RootNavigator() {
         <Stack.Protected guard={!!viewer}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="record/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="entity/[kind]/[id]" options={{ presentation: 'card' }} />
           <Stack.Screen name="settings" options={{ title: 'Настройки', headerBackTitle: 'Назад' }} />
         </Stack.Protected>
 
