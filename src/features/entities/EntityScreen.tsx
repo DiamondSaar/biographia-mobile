@@ -8,6 +8,7 @@ import type { BiographyRecord } from '@/src/api/types';
 import { RecordCard } from '@/src/components/RecordCard';
 import { useTheme } from '@/src/theme/useTheme';
 import { AddRecordForm } from '@/src/features/records/AddRecordForm';
+import { TaskCard } from '@/src/features/records/TaskCard';
 
 type EntityKind = 'entity' | 'organization';
 
@@ -25,6 +26,7 @@ export function EntityScreen({ kind, id }: { kind: EntityKind; id: number }) {
 
   const [entity, setEntity] = useState<EntityCard | null>(null);
   const [records, setRecords] = useState<BiographyRecord[] | null>(null);
+  const [tasks, setTasks] = useState<BiographyRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -34,6 +36,7 @@ export function EntityScreen({ kind, id }: { kind: EntityKind; id: number }) {
       const [entityData, feedData] = await Promise.all([entityCard(kind, id), fetchEntityFeed(kind, id)]);
       setEntity(entityData);
       setRecords(feedData.results);
+      setTasks(feedData.tasks);
       setError(null);
     } catch {
       setError('Не удалось загрузить объект.');
@@ -43,6 +46,7 @@ export function EntityScreen({ kind, id }: { kind: EntityKind; id: number }) {
   useEffect(() => {
     setEntity(null);
     setRecords(null);
+    setTasks([]);
     load();
   }, [load]);
 
@@ -140,6 +144,15 @@ export function EntityScreen({ kind, id }: { kind: EntityKind; id: number }) {
 
       {showForm && <AddRecordForm fixedEntity={fixedEntity} onCreated={handleCreated} onCancel={() => setShowForm(false)} />}
 
+      {tasks.length > 0 && (
+        <View style={styles.tasksSection}>
+          <Text style={styles.sectionTitle}>Предстоящие работы</Text>
+          {tasks.map((t) => (
+            <TaskCard key={t.id} record={t} showEntityLink={false} />
+          ))}
+        </View>
+      )}
+
       {records.length === 0 ? (
         <Text style={styles.emptyText}>Для этого объекта пока нет записей.</Text>
       ) : (
@@ -218,6 +231,10 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: theme.colors.accent,
       fontWeight: '600',
       fontSize: 13,
+    },
+    tasksSection: {
+      marginBottom: theme.spacing.lg,
+      gap: theme.spacing.sm,
     },
     emptyText: {
       textAlign: 'center',

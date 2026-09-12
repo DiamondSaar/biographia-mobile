@@ -1,11 +1,14 @@
+import { useCallback, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as recordsApi from '@/src/api/records';
+import type { BiographyRecord } from '@/src/api/types';
 import { useAuth } from '@/src/context/AuthContext';
 import { usePersonalKey } from '@/src/context/PersonalKeyContext';
 import { RecordsFeed } from '@/src/features/records/RecordsFeed';
+import { TaskCard } from '@/src/features/records/TaskCard';
 import { useTheme } from '@/src/theme/useTheme';
 
 /**
@@ -21,6 +24,20 @@ export function ProfileScreen() {
   const { viewer, logout } = useAuth();
   const { status: diaryStatus, clearBiometricKey, lock, tryBiometricUnlock } = usePersonalKey();
   const router = useRouter();
+
+  // "Предстоящие работы" по ВСЕЙ инфраструктуре (по запросу пользователя) -
+  // перед лентой "Мои записи" ниже. Видимость та же, что у Вики (по рангу/
+  // юрлицу), не привязана к авторству/владению - см. src/api/records.ts::
+  // fetchTasks и app/records/routes.py::records_tasks.
+  const [tasks, setTasks] = useState<BiographyRecord[]>([]);
+
+  const loadTasks = useCallback(() => {
+    recordsApi.fetchTasks().then((data) => setTasks(data.results)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
 
   // Биометрический ключ дневника (см. PersonalKeyContext.tsx) привязан к
   // конкретному username - при выходе его стоит стереть, чтобы на этом
@@ -78,6 +95,20 @@ export function ProfileScreen() {
         </Pressable>
       </View>
 
+      {tasks.length > 0 && (
+        <View style={styles.tasksSection}>
+          <Text style={styles.tasksSectionTitle}>Предстоящие работы (по всей инфраструктуре)</Text>
+          {/* maxHeight - список задач не должен занять весь экран и
+              вытолкнуть ленту "Мои записи" ниже вниз за пределы видимого
+              (сам себе прокручивается, а не растёт бесконечно). */}
+          <ScrollView style={styles.tasksScroll} nestedScrollEnabled>
+            {tasks.map((t) => (
+              <TaskCard key={t.id} record={t} />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       <RecordsFeed loadRecords={recordsApi.fetchMyRecords} emptyMessage="У вас пока нет записей." />
     </View>
   );
@@ -110,6 +141,22 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: '#fff',
       fontSize: 18,
       fontWeight: '600',
+    },
+    tasksSection: {
+      padding: theme.spacing.md,
+      paddingBottom: 0,
+      backgroundColor: theme.colors.backgroundCard,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    tasksSectionTitle: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: theme.spacing.sm,
+    },
+    tasksScroll: {
+      maxHeight: 320,
     },
     headerInfo: {
       flex: 1,

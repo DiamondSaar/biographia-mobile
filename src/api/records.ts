@@ -41,6 +41,22 @@ export function fetchMyRecords(): Promise<RecordsListResponse> {
   return request('/records/mine');
 }
 
+// "Предстоящие работы" по ВСЕЙ инфраструктуре (по запросу пользователя) -
+// для блока в личном кабинете (src/features/profile/ProfileScreen.tsx)
+// перед лентой "Мои записи". В отличие от fetchMyRecords, не привязано к
+// авторству/владению - видимость та же, что у Вики (по рангу/юрлицу), см.
+// GET /records/tasks (app/records/routes.py::records_tasks).
+export function fetchTasks(): Promise<RecordsListResponse> {
+  return request('/records/tasks');
+}
+
+// Закрыть "Предстоящую работу" - обязательный комментарий "что и как
+// сделано" (по требованию пользователя, без него не даём закрыть). См.
+// POST /records/<id>/complete.
+export function completeTask(id: number, comment: string): Promise<BiographyRecord> {
+  return request(`/records/${id}/complete`, { method: 'POST', body: { comment } });
+}
+
 // Личный дневник - нет отдельного маршрута "только личное", веб-версия
 // (frontend/src/pages/DiaryPage.jsx's PersonalFeed) тоже просто фильтрует
 // /records/mine по zone на клиенте, а не заводит новый бэкенд-маршрут
@@ -58,8 +74,13 @@ export function fetchRecordDetail(id: number): Promise<BiographyRecord> {
 // Лента записей, прикреплённых к конкретному объекту/юрлицу Dominex -
 // страница объекта (src/features/entities/EntityScreen.tsx). См. GET
 // /entities/<kind>/<id>/records (app/records/routes.py::entity_feed) - тот
-// же контракт, что у веб-версии (frontend/src/pages/EntityPage.jsx).
-export function fetchEntityFeed(kind: 'entity' | 'organization', id: number): Promise<RecordsListResponse> {
+// же контракт, что у веб-версии (frontend/src/pages/EntityPage.jsx). Отдельный
+// ключ tasks - активные "Предстоящие работы" этого объекта, пришпилены
+// сверху ленты на экране, results их больше не содержит (см. бэкенд).
+export function fetchEntityFeed(
+  kind: 'entity' | 'organization',
+  id: number,
+): Promise<{ results: BiographyRecord[]; tasks: BiographyRecord[] }> {
   return request(`/entities/${kind}/${id}/records`);
 }
 

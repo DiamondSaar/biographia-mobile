@@ -21,6 +21,7 @@ export const RECORD_TYPE_LABELS: Record<RecordType, string> = {
   incident: 'Инцидент',
   note: 'Свободная заметка',
   diary_entry: 'Запись в дневник',
+  planned_task: 'Предстоящая работа',
 };
 
 // Список зон/типов для выпадающих списков в форме создания записи -
@@ -29,9 +30,13 @@ export const RECORD_TYPE_LABELS: Record<RecordType, string> = {
 export const ZONE_OPTIONS = Object.entries(ZONE_LABELS) as [Zone, string][];
 export const RECORD_TYPE_OPTIONS = Object.entries(RECORD_TYPE_LABELS) as [RecordType, string][];
 
-// "Запись в дневник" имеет смысл только в личной зоне (бэкенд её и не
-// примет ни в какой другой, см. app/records/routes.py::create_record) -
-// в open/org форме создания она просто не показывается в списке.
+// "Запись в дневник" имеет смысл только в личной зоне, а "Предстоящая
+// работа" - наоборот, никогда в личной зоне (оба - бэкенд их не примет в
+// другой зоне, см. app/records/routes.py::create_record).
 export function recordTypeOptionsForZone(zone: Zone): [RecordType, string][] {
-  return zone === 'personal' ? RECORD_TYPE_OPTIONS : RECORD_TYPE_OPTIONS.filter(([value]) => value !== 'diary_entry');
+  return RECORD_TYPE_OPTIONS.filter(([value]) => {
+    if (value === 'diary_entry') return zone === 'personal';
+    if (value === 'planned_task') return zone !== 'personal';
+    return true;
+  });
 }

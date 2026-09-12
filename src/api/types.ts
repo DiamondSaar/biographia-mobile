@@ -45,7 +45,12 @@ export type RecordType =
   | 'note'
   // Только для personal-зоны - бэкенд отклоняет создание с любой другой
   // зоной (app/records/routes.py::create_record).
-  | 'diary_entry';
+  | 'diary_entry'
+  // Наоборот - НИКОГДА для personal-зоны (app/records/routes.py::create_record).
+  // "Предстоящие работы" - не показывается в общей ленте Вики, только на
+  // странице объекта и в сводном списке личного кабинета (см. RecordsFeed
+  // не используется для задач - отдельные экраны EntityScreen/ProfileScreen).
+  | 'planned_task';
 
 export type Attachment = {
   id: number;
