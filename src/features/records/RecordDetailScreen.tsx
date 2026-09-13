@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
 import * as recordsApi from '@/src/api/records';
 import { ApiError } from '@/src/api/client';
@@ -36,6 +37,7 @@ import { formatDateTime } from '@/src/utils/dates';
 export function RecordDetailScreen({ id }: { id: number }) {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const router = useRouter();
   const { viewer } = useAuth();
   const { subkey } = usePersonalKey();
 
@@ -204,6 +206,44 @@ export function RecordDetailScreen({ id }: { id: number }) {
         )}
       </View>
 
+      {(record.entity_id != null || record.related_organization_id != null) && (
+        <View style={styles.bindingsBox}>
+          {record.entity_id != null && (
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/entity/[kind]/[id]',
+                  params: { kind: record.entity_kind!, id: String(record.entity_id) },
+                })
+              }>
+              <Text style={styles.metaText}>
+                Привязано к:{' '}
+                <Text style={styles.bindingLink}>
+                  {record.entity_display_name ||
+                    `${record.entity_kind === 'organization' ? 'юрлицу' : 'объекту'} #${record.entity_id}`}
+                </Text>
+              </Text>
+            </Pressable>
+          )}
+          {record.related_organization_id != null && (
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/entity/[kind]/[id]',
+                  params: { kind: 'organization', id: String(record.related_organization_id) },
+                })
+              }>
+              <Text style={styles.metaText}>
+                Юрлицо:{' '}
+                <Text style={styles.bindingLink}>
+                  {record.related_organization_display_name || `юрлицу #${record.related_organization_id}`}
+                </Text>
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
       {locked ? (
         <View style={styles.lockedBox}>
           <Ionicons name="lock-closed-outline" size={20} color={theme.colors.textMuted} />
@@ -328,6 +368,14 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     badgeText: {
       fontSize: 12,
       fontWeight: '700',
+    },
+    bindingsBox: {
+      marginBottom: theme.spacing.md,
+      gap: 2,
+    },
+    bindingLink: {
+      color: theme.colors.accent,
+      fontWeight: '600',
     },
     title: {
       fontSize: 20,

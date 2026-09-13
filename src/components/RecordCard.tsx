@@ -1,12 +1,9 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import type { AccessLevel } from '@/src/theme/colors';
 import { useTheme } from '@/src/theme/useTheme';
 import type { BiographyRecord } from '@/src/api/types';
 import { usePersonalContent } from '@/src/features/diary/usePersonalContent';
-import { RECORD_TYPE_LABELS, ZONE_LABELS } from '@/src/features/records/labels';
 import { formatDateTime } from '@/src/utils/dates';
 
 /**
@@ -35,22 +32,29 @@ export function RecordCard({
 }) {
   const theme = useTheme();
   const styles = createStyles(theme);
-  const router = useRouter();
-  const { content, failed, locked } = usePersonalContent(record);
+  const { content, locked } = usePersonalContent(record);
 
   const accessLevel = record.access_level as AccessLevel | null;
   const borderColor = accessLevel ? theme.accessLevelColors[accessLevel].border : theme.colors.border;
 
-  // Для личной зоны заголовок/текст берутся из расшифрованного content
-  // (usePersonalContent выше), а не напрямую из record - на сервере их
-  // просто нет в открытом виде (см. record.encrypted_content вместо них).
+  // Для личной зоны заголовок берётся из расшифрованного content
+  // (usePersonalContent выше), а не напрямую из record - на сервере его
+  // просто нет в открытом виде (см. record.encrypted_content вместо него).
+  // Текст/тело записи в компактной плитке больше не показывается (см. ниже).
   const title = record.zone === 'personal' ? content?.title : record.title;
-  const body = record.zone === 'personal' ? content?.body : record.body;
+
+  // По запросу пользователя - плитка в списке сжата до двух строк (название +
+  // "кем создан / юрлицо / когда"), всё остальное (текст, зона/категория,
+  // привязка к объекту, вложения) смотрится по раскрытию - на мобильном это
+  // переход на отдельный экран записи (app/record/[id].tsx), поэтому здесь
+  // просто убрано, а не спрятано за состоянием - RecordDetailScreen.tsx
+  // показывает это всё сам.
+  const orgName = showEntityLink ? record.related_organization_display_name : null;
 
   return (
     <View style={[styles.card, { borderLeftColor: borderColor }]}>
       <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={2}>
+        <Text style={styles.title} numberOfLines={1}>
           {locked ? '🔒 Личная запись' : title || '(без заголовка)'}
         </Text>
         {accessLevel && (
@@ -69,65 +73,11 @@ export function RecordCard({
         )}
       </View>
 
-      {locked && (
-        <View style={styles.metaRow}>
-          <Ionicons name="lock-closed-outline" size={13} color={theme.colors.textMuted} />
-          <Text style={[styles.metaText, { marginLeft: theme.spacing.xs }]}>Разблокируйте дневник, чтобы увидеть содержимое</Text>
-        </View>
-      )}
-      {!locked && failed && <Text style={styles.errorInline}>Не удалось расшифровать запись.</Text>}
-      {!locked && !failed && !!body && (
-        <Text style={styles.body} numberOfLines={4}>
-          {body}
-        </Text>
-      )}
-
-      <View style={styles.metaRow}>
-        <Text style={styles.metaText}>{ZONE_LABELS[record.zone]}</Text>
-        <Text style={styles.metaDot}>·</Text>
-        <Text style={styles.metaText}>{RECORD_TYPE_LABELS[record.record_type]}</Text>
-      </View>
-
-      {showEntityLink && (record.entity_id != null || record.related_organization_id != null) && (
-        <View style={styles.bindingsBlock}>
-          {record.entity_id != null && (
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: '/entity/[kind]/[id]',
-                  params: { kind: record.entity_kind!, id: String(record.entity_id) },
-                })
-              }>
-              <Text style={styles.metaText}>
-                Привязано к:{' '}
-                <Text style={styles.metaLink}>
-                  {record.entity_display_name ||
-                    `${record.entity_kind === 'organization' ? 'юрлицу' : 'объекту'} #${record.entity_id}`}
-                </Text>
-              </Text>
-            </Pressable>
-          )}
-          {record.related_organization_id != null && (
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: '/entity/[kind]/[id]',
-                  params: { kind: 'organization', id: String(record.related_organization_id) },
-                })
-              }>
-              <Text style={styles.metaText}>
-                Юрлицо:{' '}
-                <Text style={styles.metaLink}>
-                  {record.related_organization_display_name || `юрлицу #${record.related_organization_id}`}
-                </Text>
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-
-      <Text style={styles.author}>
-        {record.author_display_name || record.author_username} · {formatDateTime(record.created_at)}
+      <Text style={styles.metaText} numberOfLines={1}>
+        {record.author_display_name || record.author_username}
+        {orgName ? ` · ${orgName}` : ''}
+        {' · '}
+        {formatDateTime(record.created_at)}
       </Text>
     </View>
   );
@@ -166,39 +116,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       fontSize: 12,
       fontWeight: '700',
     },
-    body: {
-      fontSize: 14,
-      color: theme.colors.text,
-      marginTop: theme.spacing.xs,
-    },
-    metaRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: theme.spacing.sm,
-    },
     metaText: {
-      fontSize: 12,
-      color: theme.colors.textMuted,
-    },
-    metaDot: {
-      fontSize: 12,
-      color: theme.colors.textMuted,
-      marginHorizontal: theme.spacing.xs,
-    },
-    bindingsBlock: {
-      marginTop: theme.spacing.xs,
-      gap: 2,
-    },
-    metaLink: {
-      color: theme.colors.accent,
-      fontWeight: '600',
-    },
-    errorInline: {
-      fontSize: 13,
-      color: theme.colors.danger,
-      marginTop: theme.spacing.xs,
-    },
-    author: {
       fontSize: 12,
       color: theme.colors.textMuted,
       marginTop: theme.spacing.xs,
